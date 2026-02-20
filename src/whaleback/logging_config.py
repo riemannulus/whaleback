@@ -37,3 +37,6 @@ LOGGING_CONFIG = {
 def setup_logging():
     os.makedirs("logs", exist_ok=True)
     logging.config.dictConfig(LOGGING_CONFIG)
+    # Suppress pykrx's broken logging.info(args, kwargs) errors
+    # that print ugly "--- Logging error ---" tracebacks to stderr
+    logging.raiseExceptions = False
