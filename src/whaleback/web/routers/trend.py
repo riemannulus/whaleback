@@ -1,28 +1,31 @@
 """Trend analysis endpoints: sector ranking, relative strength, sector rotation."""
 
+import logging
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
 
 from whaleback.db.async_repositories import (
-    get_sector_ranking,
-    get_trend_snapshot,
-    get_stock_detail,
     get_price_history,
+    get_sector_ranking,
+    get_stock_detail,
+    get_trend_snapshot,
 )
 from whaleback.db.models import AnalysisTrendSnapshot, Stock
-from whaleback.web.dependencies import get_db_session, get_cache
 from whaleback.web.cache import CacheService
+from whaleback.web.dependencies import get_cache, get_db_session
 from whaleback.web.schemas import (
-    SectorRankingItem,
-    RelativeStrength,
     ApiResponse,
     Meta,
-    PaginatedResponse,
     PaginatedMeta,
+    PaginatedResponse,
+    RelativeStrength,
+    SectorRankingItem,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/analysis/trend", tags=["trend"])
 
@@ -70,17 +73,22 @@ async def relative_strength(
 
     # Index prices
     index_code = "1001" if benchmark == "KOSPI" else "2001"
-    result = await session.execute(
-        select(MarketIndex)
-        .where(
-            and_(
-                MarketIndex.index_code == index_code,
-                MarketIndex.trade_date.between(start_date, end_date),
+    try:
+        result = await session.execute(
+            select(MarketIndex)
+            .where(
+                and_(
+                    MarketIndex.index_code == index_code,
+                    MarketIndex.trade_date.between(start_date, end_date),
+                )
             )
+            .order_by(MarketIndex.trade_date)
         )
-        .order_by(MarketIndex.trade_date)
-    )
-    index_rows = result.scalars().all()
+        index_rows = result.scalars().all()
+    except Exception:
+        await session.rollback()
+        logger.warning("MarketIndex table not found, using empty index data")
+        index_rows = []
     index_by_date = {r.trade_date.isoformat(): float(r.close) for r in index_rows}
 
     # Align dates
@@ -151,49 +159,55 @@ async def sector_stocks(
     from sqlalchemy import func
     from whaleback.db.async_repositories import get_latest_analysis_date
 
-    as_of_date = await get_latest_analysis_date(session)
+    try:
+        as_of_date = await get_latest_analysis_date(session)
 
-    query = (
-        select(AnalysisTrendSnapshot, Stock.name, Stock.market)
-        .join(Stock, AnalysisTrendSnapshot.ticker == Stock.ticker)
-        .where(
-            and_(
-                AnalysisTrendSnapshot.sector == sector_name,
-                AnalysisTrendSnapshot.trade_date == as_of_date,
+        query = (
+            select(AnalysisTrendSnapshot, Stock.name, Stock.market)
+            .join(Stock, AnalysisTrendSnapshot.ticker == Stock.ticker)
+            .where(
+                and_(
+                    AnalysisTrendSnapshot.sector == sector_name,
+                    AnalysisTrendSnapshot.trade_date == as_of_date,
+                )
+            )
+            .order_by(AnalysisTrendSnapshot.rs_percentile.desc().nullslast())
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+
+        count_query = (
+            select(func.count())
+            .select_from(AnalysisTrendSnapshot)
+            .where(
+                and_(
+                    AnalysisTrendSnapshot.sector == sector_name,
+                    AnalysisTrendSnapshot.trade_date == as_of_date,
+                )
             )
         )
-        .order_by(AnalysisTrendSnapshot.rs_percentile.desc().nullslast())
-        .offset((page - 1) * size)
-        .limit(size)
-    )
 
-    count_query = (
-        select(func.count())
-        .select_from(AnalysisTrendSnapshot)
-        .where(
-            and_(
-                AnalysisTrendSnapshot.sector == sector_name,
-                AnalysisTrendSnapshot.trade_date == as_of_date,
+        total = (await session.execute(count_query)).scalar() or 0
+        result = await session.execute(query)
+
+        rows = []
+        for row in result.all():
+            snap = row[0]
+            rows.append(
+                {
+                    "ticker": snap.ticker,
+                    "name": row[1],
+                    "market": row[2],
+                    "rs_vs_kospi_20d": float(snap.rs_vs_kospi_20d) if snap.rs_vs_kospi_20d else None,
+                    "rs_percentile": snap.rs_percentile,
+                    "sector": snap.sector,
+                }
             )
-        )
-    )
-
-    total = (await session.execute(count_query)).scalar() or 0
-    result = await session.execute(query)
-
-    rows = []
-    for row in result.all():
-        snap = row[0]
-        rows.append(
-            {
-                "ticker": snap.ticker,
-                "name": row[1],
-                "market": row[2],
-                "rs_vs_kospi_20d": float(snap.rs_vs_kospi_20d) if snap.rs_vs_kospi_20d else None,
-                "rs_percentile": snap.rs_percentile,
-                "sector": snap.sector,
-            }
-        )
+    except Exception:
+        await session.rollback()
+        logger.warning(f"Failed to get sector stocks for {sector_name}, table may not exist")
+        rows = []
+        total = 0
 
     return PaginatedResponse(
         data=rows,

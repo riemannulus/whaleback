@@ -80,12 +80,17 @@ async def get_stock_detail(session: AsyncSession, ticker: str) -> dict[str, Any]
     )
     fund = (await session.execute(fund_q)).scalar_one_or_none()
 
-    # Sector
-    sector_q = select(SectorMapping).where(SectorMapping.ticker == ticker)
-    sector = (await session.execute(sector_q)).scalar_one_or_none()
+    # Sector (graceful fallback if table doesn't exist yet)
+    sector_name = None
+    try:
+        sector_q = select(SectorMapping).where(SectorMapping.ticker == ticker)
+        sector = (await session.execute(sector_q)).scalar_one_or_none()
+        sector_name = sector.sector if sector else None
+    except Exception:
+        await session.rollback()
 
     data = _stock_to_dict(stock)
-    data["sector"] = sector.sector if sector else None
+    data["sector"] = sector_name
     data["latest_price"] = _ohlcv_to_dict(ohlcv) if ohlcv else None
     data["latest_fundamental"] = _fundamental_to_dict(fund) if fund else None
     return data
@@ -126,56 +131,76 @@ async def get_investor_history(
 
 async def get_latest_analysis_date(session: AsyncSession) -> date | None:
     """Get the most recent analysis date."""
-    result = await session.execute(select(func.max(AnalysisQuantSnapshot.trade_date)))
-    return result.scalar_one_or_none()
+    try:
+        result = await session.execute(select(func.max(AnalysisQuantSnapshot.trade_date)))
+        return result.scalar_one_or_none()
+    except Exception:
+        await session.rollback()
+        logger.warning("AnalysisQuantSnapshot table not found, returning None")
+        return None
 
 
 async def get_quant_snapshot(
     session: AsyncSession, ticker: str, as_of_date: date | None = None
 ) -> dict[str, Any] | None:
     """Get quant analysis snapshot for a ticker."""
-    if as_of_date is None:
-        as_of_date = await get_latest_analysis_date(session)
+    try:
         if as_of_date is None:
-            return None
+            as_of_date = await get_latest_analysis_date(session)
+            if as_of_date is None:
+                return None
 
-    query = select(AnalysisQuantSnapshot).where(
-        and_(AnalysisQuantSnapshot.ticker == ticker, AnalysisQuantSnapshot.trade_date == as_of_date)
-    )
-    result = (await session.execute(query)).scalar_one_or_none()
-    return _quant_to_dict(result) if result else None
+        query = select(AnalysisQuantSnapshot).where(
+            and_(AnalysisQuantSnapshot.ticker == ticker, AnalysisQuantSnapshot.trade_date == as_of_date)
+        )
+        result = (await session.execute(query)).scalar_one_or_none()
+        return _quant_to_dict(result) if result else None
+    except Exception:
+        await session.rollback()
+        logger.warning(f"Failed to get quant snapshot for {ticker}, table may not exist")
+        return None
 
 
 async def get_whale_snapshot(
     session: AsyncSession, ticker: str, as_of_date: date | None = None
 ) -> dict[str, Any] | None:
     """Get whale analysis snapshot for a ticker."""
-    if as_of_date is None:
-        as_of_date = await get_latest_analysis_date(session)
+    try:
         if as_of_date is None:
-            return None
+            as_of_date = await get_latest_analysis_date(session)
+            if as_of_date is None:
+                return None
 
-    query = select(AnalysisWhaleSnapshot).where(
-        and_(AnalysisWhaleSnapshot.ticker == ticker, AnalysisWhaleSnapshot.trade_date == as_of_date)
-    )
-    result = (await session.execute(query)).scalar_one_or_none()
-    return _whale_to_dict(result) if result else None
+        query = select(AnalysisWhaleSnapshot).where(
+            and_(AnalysisWhaleSnapshot.ticker == ticker, AnalysisWhaleSnapshot.trade_date == as_of_date)
+        )
+        result = (await session.execute(query)).scalar_one_or_none()
+        return _whale_to_dict(result) if result else None
+    except Exception:
+        await session.rollback()
+        logger.warning(f"Failed to get whale snapshot for {ticker}, table may not exist")
+        return None
 
 
 async def get_trend_snapshot(
     session: AsyncSession, ticker: str, as_of_date: date | None = None
 ) -> dict[str, Any] | None:
     """Get trend analysis snapshot for a ticker."""
-    if as_of_date is None:
-        as_of_date = await get_latest_analysis_date(session)
+    try:
         if as_of_date is None:
-            return None
+            as_of_date = await get_latest_analysis_date(session)
+            if as_of_date is None:
+                return None
 
-    query = select(AnalysisTrendSnapshot).where(
-        and_(AnalysisTrendSnapshot.ticker == ticker, AnalysisTrendSnapshot.trade_date == as_of_date)
-    )
-    result = (await session.execute(query)).scalar_one_or_none()
-    return _trend_to_dict(result) if result else None
+        query = select(AnalysisTrendSnapshot).where(
+            and_(AnalysisTrendSnapshot.ticker == ticker, AnalysisTrendSnapshot.trade_date == as_of_date)
+        )
+        result = (await session.execute(query)).scalar_one_or_none()
+        return _trend_to_dict(result) if result else None
+    except Exception:
+        await session.rollback()
+        logger.warning(f"Failed to get trend snapshot for {ticker}, table may not exist")
+        return None
 
 
 async def get_quant_rankings(
@@ -190,51 +215,56 @@ async def get_quant_rankings(
     size: int = 50,
 ) -> tuple[list[dict[str, Any]], int]:
     """Get ranked stocks by quant analysis."""
-    if as_of_date is None:
-        as_of_date = await get_latest_analysis_date(session)
+    try:
         if as_of_date is None:
-            return [], 0
+            as_of_date = await get_latest_analysis_date(session)
+            if as_of_date is None:
+                return [], 0
 
-    base = (
-        select(AnalysisQuantSnapshot, Stock.name, Stock.market)
-        .join(Stock, AnalysisQuantSnapshot.ticker == Stock.ticker)
-        .where(AnalysisQuantSnapshot.trade_date == as_of_date)
-    )
-    count_base = (
-        select(func.count())
-        .select_from(AnalysisQuantSnapshot)
-        .join(Stock, AnalysisQuantSnapshot.ticker == Stock.ticker)
-        .where(AnalysisQuantSnapshot.trade_date == as_of_date)
-    )
+        base = (
+            select(AnalysisQuantSnapshot, Stock.name, Stock.market)
+            .join(Stock, AnalysisQuantSnapshot.ticker == Stock.ticker)
+            .where(AnalysisQuantSnapshot.trade_date == as_of_date)
+        )
+        count_base = (
+            select(func.count())
+            .select_from(AnalysisQuantSnapshot)
+            .join(Stock, AnalysisQuantSnapshot.ticker == Stock.ticker)
+            .where(AnalysisQuantSnapshot.trade_date == as_of_date)
+        )
 
-    if market:
-        base = base.where(Stock.market == market)
-        count_base = count_base.where(Stock.market == market)
-    if min_fscore is not None:
-        base = base.where(AnalysisQuantSnapshot.fscore >= min_fscore)
-        count_base = count_base.where(AnalysisQuantSnapshot.fscore >= min_fscore)
-    if grade:
-        base = base.where(AnalysisQuantSnapshot.investment_grade == grade)
-        count_base = count_base.where(AnalysisQuantSnapshot.investment_grade == grade)
+        if market:
+            base = base.where(Stock.market == market)
+            count_base = count_base.where(Stock.market == market)
+        if min_fscore is not None:
+            base = base.where(AnalysisQuantSnapshot.fscore >= min_fscore)
+            count_base = count_base.where(AnalysisQuantSnapshot.fscore >= min_fscore)
+        if grade:
+            base = base.where(AnalysisQuantSnapshot.investment_grade == grade)
+            count_base = count_base.where(AnalysisQuantSnapshot.investment_grade == grade)
 
-    total = (await session.execute(count_base)).scalar() or 0
+        total = (await session.execute(count_base)).scalar() or 0
 
-    # Sort with whitelist validation
-    if sort_by not in ALLOWED_SORT_FIELDS:
-        sort_by = "safety_margin"
-    sort_col = getattr(AnalysisQuantSnapshot, sort_by)
-    base = base.order_by(desc(sort_col)).offset((page - 1) * size).limit(size)
+        # Sort with whitelist validation
+        if sort_by not in ALLOWED_SORT_FIELDS:
+            sort_by = "safety_margin"
+        sort_col = getattr(AnalysisQuantSnapshot, sort_by)
+        base = base.order_by(desc(sort_col)).offset((page - 1) * size).limit(size)
 
-    result = await session.execute(base)
-    rows = []
-    for row in result.all():
-        snapshot = row[0]
-        d = _quant_to_dict(snapshot)
-        d["name"] = row[1]
-        d["market"] = row[2]
-        rows.append(d)
+        result = await session.execute(base)
+        rows = []
+        for row in result.all():
+            snapshot = row[0]
+            d = _quant_to_dict(snapshot)
+            d["name"] = row[1]
+            d["market"] = row[2]
+            rows.append(d)
 
-    return rows, total
+        return rows, total
+    except Exception:
+        await session.rollback()
+        logger.warning("Failed to get quant rankings, table may not exist")
+        return [], 0
 
 
 async def get_whale_top(
@@ -246,45 +276,50 @@ async def get_whale_top(
     size: int = 20,
 ) -> tuple[list[dict[str, Any]], int]:
     """Get top whale-accumulated stocks."""
-    if as_of_date is None:
-        as_of_date = await get_latest_analysis_date(session)
+    try:
         if as_of_date is None:
-            return [], 0
+            as_of_date = await get_latest_analysis_date(session)
+            if as_of_date is None:
+                return [], 0
 
-    base = (
-        select(AnalysisWhaleSnapshot, Stock.name, Stock.market)
-        .join(Stock, AnalysisWhaleSnapshot.ticker == Stock.ticker)
-        .where(AnalysisWhaleSnapshot.trade_date == as_of_date)
-    )
-    count_base = (
-        select(func.count())
-        .select_from(AnalysisWhaleSnapshot)
-        .join(Stock, AnalysisWhaleSnapshot.ticker == Stock.ticker)
-        .where(AnalysisWhaleSnapshot.trade_date == as_of_date)
-    )
+        base = (
+            select(AnalysisWhaleSnapshot, Stock.name, Stock.market)
+            .join(Stock, AnalysisWhaleSnapshot.ticker == Stock.ticker)
+            .where(AnalysisWhaleSnapshot.trade_date == as_of_date)
+        )
+        count_base = (
+            select(func.count())
+            .select_from(AnalysisWhaleSnapshot)
+            .join(Stock, AnalysisWhaleSnapshot.ticker == Stock.ticker)
+            .where(AnalysisWhaleSnapshot.trade_date == as_of_date)
+        )
 
-    if market:
-        base = base.where(Stock.market == market)
-        count_base = count_base.where(Stock.market == market)
-    if min_score is not None:
-        base = base.where(AnalysisWhaleSnapshot.whale_score >= min_score)
-        count_base = count_base.where(AnalysisWhaleSnapshot.whale_score >= min_score)
+        if market:
+            base = base.where(Stock.market == market)
+            count_base = count_base.where(Stock.market == market)
+        if min_score is not None:
+            base = base.where(AnalysisWhaleSnapshot.whale_score >= min_score)
+            count_base = count_base.where(AnalysisWhaleSnapshot.whale_score >= min_score)
 
-    total = (await session.execute(count_base)).scalar() or 0
-    base = (
-        base.order_by(desc(AnalysisWhaleSnapshot.whale_score)).offset((page - 1) * size).limit(size)
-    )
+        total = (await session.execute(count_base)).scalar() or 0
+        base = (
+            base.order_by(desc(AnalysisWhaleSnapshot.whale_score)).offset((page - 1) * size).limit(size)
+        )
 
-    result = await session.execute(base)
-    rows = []
-    for row in result.all():
-        snapshot = row[0]
-        d = _whale_to_dict(snapshot)
-        d["name"] = row[1]
-        d["market"] = row[2]
-        rows.append(d)
+        result = await session.execute(base)
+        rows = []
+        for row in result.all():
+            snapshot = row[0]
+            d = _whale_to_dict(snapshot)
+            d["name"] = row[1]
+            d["market"] = row[2]
+            rows.append(d)
 
-    return rows, total
+        return rows, total
+    except Exception:
+        await session.rollback()
+        logger.warning("Failed to get whale top, table may not exist")
+        return [], 0
 
 
 async def get_sector_ranking(
@@ -293,43 +328,48 @@ async def get_sector_ranking(
     market: str | None = None,
 ) -> list[dict[str, Any]]:
     """Get sector ranking by average RS percentile."""
-    if as_of_date is None:
-        as_of_date = await get_latest_analysis_date(session)
+    try:
         if as_of_date is None:
-            return []
+            as_of_date = await get_latest_analysis_date(session)
+            if as_of_date is None:
+                return []
 
-    query = (
-        select(
-            AnalysisTrendSnapshot.sector,
-            func.count().label("stock_count"),
-            func.avg(AnalysisTrendSnapshot.rs_percentile).label("avg_rs_percentile"),
-            func.avg(AnalysisTrendSnapshot.rs_vs_kospi_20d).label("avg_rs_20d"),
-        )
-        .where(
-            and_(
-                AnalysisTrendSnapshot.trade_date == as_of_date,
-                AnalysisTrendSnapshot.sector.isnot(None),
+        query = (
+            select(
+                AnalysisTrendSnapshot.sector,
+                func.count().label("stock_count"),
+                func.avg(AnalysisTrendSnapshot.rs_percentile).label("avg_rs_percentile"),
+                func.avg(AnalysisTrendSnapshot.rs_vs_kospi_20d).label("avg_rs_20d"),
             )
+            .where(
+                and_(
+                    AnalysisTrendSnapshot.trade_date == as_of_date,
+                    AnalysisTrendSnapshot.sector.isnot(None),
+                )
+            )
+            .group_by(AnalysisTrendSnapshot.sector)
+            .order_by(desc("avg_rs_percentile"))
         )
-        .group_by(AnalysisTrendSnapshot.sector)
-        .order_by(desc("avg_rs_percentile"))
-    )
 
-    if market:
-        query = query.join(Stock, AnalysisTrendSnapshot.ticker == Stock.ticker).where(
-            Stock.market == market
-        )
+        if market:
+            query = query.join(Stock, AnalysisTrendSnapshot.ticker == Stock.ticker).where(
+                Stock.market == market
+            )
 
-    result = await session.execute(query)
-    return [
-        {
-            "sector": row.sector,
-            "stock_count": row.stock_count,
-            "avg_rs_percentile": float(row.avg_rs_percentile) if row.avg_rs_percentile else None,
-            "avg_rs_20d": float(row.avg_rs_20d) if row.avg_rs_20d else None,
-        }
-        for row in result.all()
-    ]
+        result = await session.execute(query)
+        return [
+            {
+                "sector": row.sector,
+                "stock_count": row.stock_count,
+                "avg_rs_percentile": float(row.avg_rs_percentile) if row.avg_rs_percentile else None,
+                "avg_rs_20d": float(row.avg_rs_20d) if row.avg_rs_20d else None,
+            }
+            for row in result.all()
+        ]
+    except Exception:
+        await session.rollback()
+        logger.warning("Failed to get sector ranking, table may not exist")
+        return []
 
 
 async def get_collection_status(session: AsyncSession) -> list[dict[str, Any]]:
