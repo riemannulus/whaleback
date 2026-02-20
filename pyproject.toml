@@ -1,0 +1,47 @@
+[project]
+name = "whaleback"
+version = "0.1.0"
+description = "Korean stock market (KOSPI/KOSDAQ) data pipeline"
+requires-python = ">=3.11"
+dependencies = [
+    "pykrx>=1.0.45",
+    "sqlalchemy>=2.0,<3.0",
+    "psycopg2-binary>=2.9,<3.0",
+    "alembic>=1.13,<2.0",
+    "pydantic-settings>=2.0,<3.0",
+    "apscheduler>=3.10,<4.0",
+    "tenacity>=8.2,<10.0",
+    "pandas>=2.0,<3.0",
+    "python-dotenv>=1.0,<2.0",
+    "python-json-logger>=2.0,<3.0",
+    "click>=8.1,<9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4,<9.0",
+    "pytest-cov>=4.1,<6.0",
+    "pytest-mock>=3.12,<4.0",
+    "ruff>=0.1",
+    "mypy>=1.7",
+]
+
+[project.scripts]
+whaleback = "whaleback.__main__:cli"
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+plugins = ["sqlalchemy.ext.mypy.plugin"]
