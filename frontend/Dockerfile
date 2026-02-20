@@ -13,8 +13,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-ARG NEXT_PUBLIC_API_URL=http://backend:8000
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+# NEXT_PUBLIC_API_URL must be empty so client-side JS uses same-origin (/api/...)
+# Next.js rewrites then proxy to BACKEND_INTERNAL_URL server-side
+ENV NEXT_PUBLIC_API_URL=""
 
 RUN npm run build
 
