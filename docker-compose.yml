@@ -88,6 +88,17 @@ services:
     profiles:
       - setup
 
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    environment:
+      - TUNNEL_TOKEN=${CF_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate run
+    depends_on:
+      - frontend
+    networks:
+      - app
+    restart: always
+
   scheduler:
     build:
       context: .
