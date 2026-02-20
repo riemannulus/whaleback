@@ -81,9 +81,14 @@ class KRXClient:
         self, start: str, end: str, market: str = "KOSPI", investor: str = "개인"
     ) -> pd.DataFrame:
         """Get net purchases for all tickers by investor type. Returns DataFrame indexed by ticker."""
-        return self._call(
-            stock.get_market_net_purchases_of_equities_by_ticker, start, end, market, investor
-        )
+        try:
+            return self._call(
+                stock.get_market_net_purchases_of_equities_by_ticker, start, end, market, investor
+            )
+        except ValueError:
+            # pykrx bug: empty DataFrame + column assignment mismatch on dates with no data
+            logger.debug(f"No investor data for {start}~{end} {market} {investor}")
+            return pd.DataFrame()
 
     def get_index_ohlcv_by_date(self, date_str: str, index_code: str = "1001") -> pd.DataFrame:
         """Get index OHLCV for a single date. Default: KOSPI (1001)."""
