@@ -24,36 +24,23 @@ class IndexCollector(BaseCollector):
 
     def fetch(self, date_str: str) -> pd.DataFrame:
         rows = []
-        for index_code, index_name in INDICES.items():
+        # Fetch price changes per market (includes 등락률)
+        market_map = {"KOSPI": ("1001", "코스피"), "KOSDAQ": ("2001", "코스닥")}
+        for market, (index_code, index_name) in market_map.items():
             try:
-                df = self.client.get_index_ohlcv_by_date(date_str, index_code)
-                if df is not None and not df.empty:
-                    # get_index_ohlcv_by_date returns a single row for the date
-                    # with columns: 시가, 고가, 저가, 종가, 거래량, 거래대금, 등락률
-                    if isinstance(df, pd.DataFrame) and len(df) > 0:
-                        row_data = df.iloc[0] if len(df) > 0 else None
-                        if row_data is not None:
-                            rows.append(
-                                {
-                                    "index_code": index_code,
-                                    "index_name": index_name,
-                                    "close": float(row_data.get("종가", 0)),
-                                    "change_rate": float(row_data.get("등락률", 0)),
-                                    "volume": int(row_data.get("거래량", 0)),
-                                    "trading_value": int(row_data.get("거래대금", 0)),
-                                }
-                            )
-                    elif isinstance(df, pd.Series):
-                        rows.append(
-                            {
-                                "index_code": index_code,
-                                "index_name": index_name,
-                                "close": float(df.get("종가", 0)),
-                                "change_rate": float(df.get("등락률", 0)),
-                                "volume": int(df.get("거래량", 0)),
-                                "trading_value": int(df.get("거래대금", 0)),
-                            }
-                        )
+                df = self.client.get_index_price_change(date_str, market)
+                if df is not None and not df.empty and index_name in df.index:
+                    row_data = df.loc[index_name]
+                    rows.append(
+                        {
+                            "index_code": index_code,
+                            "index_name": index_name,
+                            "close": float(row_data.get("종가", 0)),
+                            "change_rate": float(row_data.get("등락률", 0)),
+                            "volume": int(row_data.get("거래량", 0)),
+                            "trading_value": int(row_data.get("거래대금", 0)),
+                        }
+                    )
             except Exception as e:
                 logger.warning(f"Failed to get index data for {index_code} ({index_name}): {e}")
                 continue

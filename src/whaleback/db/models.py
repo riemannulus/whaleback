@@ -150,7 +150,7 @@ class AnalysisQuantSnapshot(Base):
     trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
     ticker: Mapped[str] = mapped_column(String(6), primary_key=True)
     rim_value: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
-    safety_margin: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    safety_margin: Mapped[float | None] = mapped_column(Numeric(12, 4), nullable=True)
     fscore: Mapped[int | None] = mapped_column(Integer, nullable=True)
     fscore_detail: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     investment_grade: Mapped[str | None] = mapped_column(String(3), nullable=True)

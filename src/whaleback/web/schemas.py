@@ -141,12 +141,12 @@ class QuantRankingItem(BaseModel):
 
 
 class WhaleComponent(BaseModel):
-    net_total: int = Field(description="Net purchase total (KRW)")
-    buy_days: int
-    sell_days: int
-    consistency: float = Field(description="Buy consistency ratio (0.0-1.0)")
-    intensity: float = Field(description="Buying intensity ratio")
-    score: float = Field(description="Component sub-score")
+    net_total: int | None = Field(None, description="Net purchase total (KRW)")
+    buy_days: int | None = None
+    sell_days: int | None = None
+    consistency: float | None = Field(None, description="Buy consistency ratio (0.0-1.0)")
+    intensity: float | None = Field(None, description="Buying intensity ratio")
+    score: float | None = Field(None, description="Component sub-score")
 
 
 class WhaleScore(BaseModel):

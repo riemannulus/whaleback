@@ -75,7 +75,11 @@ class KRXClient:
 
     def get_index_ohlcv_by_date(self, date_str: str, index_code: str = "1001") -> pd.DataFrame:
         """Get index OHLCV for a single date. Default: KOSPI (1001)."""
-        return self._call(stock.get_index_ohlcv_by_date, date_str, index_code)
+        return self._call(stock.get_index_ohlcv_by_date, date_str, date_str, index_code)
+
+    def get_index_price_change(self, date_str: str, market: str = "KOSPI") -> pd.DataFrame:
+        """Get index price changes including 등락률. Returns DataFrame indexed by 지수명."""
+        return self._call(stock.get_index_price_change_by_ticker, date_str, date_str, market)
 
     def get_index_ticker_list(self, date_str: str, market: str = "KOSPI") -> list[str]:
         """Get index code list for a market."""
@@ -85,15 +89,13 @@ class KRXClient:
         self, date_str: str, market: str = "KOSPI"
     ) -> dict[str, list[str]]:
         """Get sector-to-ticker mapping. Returns dict: sector_name -> [ticker_list]."""
-        sectors = {}
-        # pykrx provides sector index tickers, we need to iterate them
-        sector_tickers = self._call(stock.get_index_ticker_list, date_str, market)
-        for sector_code in sector_tickers:
-            try:
-                name = self._call(stock.get_index_ticker_name, sector_code)
-                tickers = self._call(stock.get_index_portfolio_deposit_file, date_str, sector_code)
-                if tickers:
-                    sectors[name] = list(tickers)
-            except Exception:
-                continue
+        df = self._call(stock.get_market_sector_classifications, date_str, market)
+        if df is None or df.empty:
+            return {}
+        sectors: dict[str, list[str]] = {}
+        for ticker, row in df.iterrows():
+            sector_name = row["업종명"]
+            if sector_name not in sectors:
+                sectors[sector_name] = []
+            sectors[sector_name].append(str(ticker))
         return sectors
