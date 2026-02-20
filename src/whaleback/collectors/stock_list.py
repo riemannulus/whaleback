@@ -42,14 +42,11 @@ class StockListCollector(BaseCollector):
         # For existing tickers, use cached names
         name_map = {ticker: stock.name for ticker, stock in existing.items()}
 
-        # Only fetch names for genuinely new tickers (rate limiting friendly)
-        for ticker in new_tickers:
-            try:
-                name = self.client.get_ticker_name(ticker)
-                name_map[ticker] = name
-            except Exception as e:
-                logger.warning(f"Failed to get name for {ticker}: {e}")
-                name_map[ticker] = ticker  # fallback to ticker as name
+        # Bulk fetch names for new tickers (no rate limiting needed)
+        if new_tickers:
+            logger.info(f"Fetching names for {len(new_tickers)} new tickers...")
+            bulk_names = self.client.get_ticker_names_bulk(new_tickers)
+            name_map.update(bulk_names)
 
         df["name"] = df["ticker"].map(name_map)
         return df

@@ -49,6 +49,18 @@ class KRXClient:
     def get_ticker_name(self, ticker: str) -> str:
         return self._call(stock.get_market_ticker_name, ticker)
 
+    def get_ticker_names_bulk(self, tickers: list[str]) -> dict[str, str]:
+        """Fetch names for multiple tickers without per-call rate limiting.
+        get_market_ticker_name is a lightweight local lookup, no rate limit needed.
+        """
+        names = {}
+        for ticker in tickers:
+            try:
+                names[ticker] = stock.get_market_ticker_name(ticker)
+            except Exception:
+                names[ticker] = ticker  # fallback
+        return names
+
     def get_ohlcv_by_date(self, date_str: str, market: str = "KOSPI") -> pd.DataFrame:
         """Get OHLCV for ALL tickers on a single date."""
         return self._call(stock.get_market_ohlcv_by_ticker, date_str, market)

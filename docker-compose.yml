@@ -13,7 +13,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - internal
+      - db
     restart: unless-stopped
 
   redis:
@@ -26,7 +26,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - internal
+      - db
     restart: unless-stopped
 
   backend:
@@ -51,7 +51,8 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - internal
+      - db        # DB/Redis 접근
+      - app       # frontend와 통신 + 인터넷 (KRX API)
     restart: unless-stopped
 
   frontend:
@@ -65,8 +66,7 @@ services:
     depends_on:
       - backend
     networks:
-      - internal
-      - public
+      - app       # backend와 통신 + 외부 포트 바인딩
     restart: unless-stopped
 
   init:
@@ -84,7 +84,7 @@ services:
       db:
         condition: service_healthy
     networks:
-      - internal
+      - db
     profiles:
       - setup
 
@@ -111,7 +111,8 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - internal
+      - db        # DB/Redis 접근
+      - app       # 인터넷 (KRX API)
     restart: unless-stopped
 
 volumes:
@@ -119,7 +120,7 @@ volumes:
   redisdata:
 
 networks:
-  internal:
-    internal: true  # 외부 접근 완전 차단
-  public:
-    # frontend만 외부 포트 바인딩
+  db:
+    internal: true   # DB/Redis 전용, 외부 접근 불가
+  app:
+    # backend/frontend/scheduler 통신 + 인터넷
