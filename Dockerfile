@@ -30,7 +30,8 @@ COPY --from=builder /app/migrations /app/migrations
 COPY --from=builder /app/alembic.ini /app/alembic.ini
 
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+COPY scripts/safe_backfill.sh /app/scripts/safe_backfill.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh /app/scripts/safe_backfill.sh
 
 RUN mkdir -p /app/logs
 
