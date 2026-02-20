@@ -22,7 +22,7 @@ export function NavBar() {
             <span className="text-2xl">🐋</span>
             <span className="text-xl font-bold text-whale-700">Whaleback</span>
           </Link>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide flex-nowrap">
             {navItems.map((item) => {
               const isActive =
                 item.href === "/"
@@ -32,7 +32,7 @@ export function NavBar() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  className={`px-3 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
                     isActive
                       ? "bg-whale-50 text-whale-700"
                       : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"

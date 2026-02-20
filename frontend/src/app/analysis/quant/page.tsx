@@ -58,6 +58,7 @@ function QuantAnalysisContent() {
     market: market === "전체" ? undefined : market,
     grade: grade === "전체" ? undefined : grade,
     min_fscore: minFScore === 0 ? undefined : minFScore,
+    sort_by: "fscore",
     page,
     size: 20,
   };

@@ -249,7 +249,7 @@ async def get_quant_rankings(
         if sort_by not in ALLOWED_SORT_FIELDS:
             sort_by = "safety_margin"
         sort_col = getattr(AnalysisQuantSnapshot, sort_by)
-        base = base.order_by(desc(sort_col)).offset((page - 1) * size).limit(size)
+        base = base.order_by(desc(sort_col).nulls_last()).offset((page - 1) * size).limit(size)
 
         result = await session.execute(base)
         rows = []

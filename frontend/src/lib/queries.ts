@@ -56,7 +56,7 @@ export function useFScore(ticker: string) {
   });
 }
 
-export function useQuantRankings(params?: { market?: string; min_fscore?: number; grade?: string; page?: number; size?: number }) {
+export function useQuantRankings(params?: { market?: string; min_fscore?: number; grade?: string; sort_by?: string; page?: number; size?: number }) {
   return useQuery({
     queryKey: ["quant", "rankings", params],
     queryFn: () => quantApi.rankings(params),

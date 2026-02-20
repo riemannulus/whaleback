@@ -47,7 +47,7 @@ export const quantApi = {
   grade: (ticker: string) =>
     fetchApi<any>(`/api/v1/analysis/quant/grade/${ticker}`),
 
-  rankings: (params?: { market?: string; min_fscore?: number; grade?: string; page?: number; size?: number }) =>
+  rankings: (params?: { market?: string; min_fscore?: number; grade?: string; sort_by?: string; page?: number; size?: number }) =>
     fetchApi<any>("/api/v1/analysis/quant/rankings", params),
 };
 
