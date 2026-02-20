@@ -65,13 +65,25 @@ function TrendAnalysisContent() {
     }
   };
 
-  // Prepare scatter chart data
-  const scatterChartOption = rotationData ? (() => {
-    const sectors = rotationData.data;
+  // Prepare scatter chart data - use rankingData for metrics, rotationData for quadrants
+  const scatterChartOption = (rankingData && rotationData) ? (() => {
+    const sectors = rankingData.data as SectorRankingItem[];
+
+    // Skip chart if no meaningful RS data
+    const hasData = sectors.some((s) => s.avg_rs_percentile !== null);
+    if (!hasData) return null;
+
+    // Build quadrant lookup from rotation data
+    const quadrantMap: Record<string, string> = {};
+    for (const s of (rotationData.data as any[])) {
+      if (s.sector && s.quadrant) {
+        quadrantMap[s.sector] = s.quadrant;
+      }
+    }
 
     // Calculate median momentum_rank for quadrant divider
     const ranks = sectors
-      .map((s: SectorRankingItem) => s.momentum_rank)
+      .map((s) => s.momentum_rank)
       .filter((r: number | null): r is number => r !== null)
       .sort((a: number, b: number) => a - b);
     const medianRank = ranks.length > 0 ? ranks[Math.floor(ranks.length / 2)] : 5;
@@ -83,11 +95,13 @@ function TrendAnalysisContent() {
       improving: "#3b82f6",
     };
 
-    const scatterData = sectors.map((s: SectorRankingItem) => ({
-      value: [s.avg_rs_percentile || 50, s.momentum_rank || 5],
-      name: s.sector,
-      itemStyle: { color: quadrantColorMap[s.quadrant || ""] || "#9ca3af" },
-    }));
+    const scatterData = sectors
+      .filter((s) => s.avg_rs_percentile !== null)
+      .map((s) => ({
+        value: [s.avg_rs_percentile, s.momentum_rank || 5],
+        name: s.sector,
+        itemStyle: { color: quadrantColorMap[quadrantMap[s.sector] || ""] || "#9ca3af" },
+      }));
 
     return {
       tooltip: {
@@ -132,6 +146,7 @@ function TrendAnalysisContent() {
         // Quadrant dividers
         {
           type: "line",
+          data: [],
           markLine: {
             silent: true,
             symbol: "none",
@@ -293,7 +308,15 @@ function TrendAnalysisContent() {
           <div className="h-[400px] bg-gray-100 rounded animate-pulse" />
         )}
 
-        {rotationData && scatterChartOption && (
+        {rankingData && rotationData && !rotationLoading && !scatterChartOption && (
+          <div className="text-gray-400 text-center py-8">
+            RS 데이터가 충분하지 않아 사분면 차트를 표시할 수 없습니다.
+            <br />
+            <span className="text-xs">최소 20거래일의 가격 데이터가 필요합니다.</span>
+          </div>
+        )}
+
+        {scatterChartOption && (
           <div>
             <ReactECharts option={scatterChartOption} style={{ height: "400px" }} />
             <div className="mt-4 flex justify-center gap-6 text-xs">

@@ -117,8 +117,9 @@ while [ "$CHUNK_START" -le "$END_DATE" ]; do
 
     CHUNK_TS=$(date +%s)
 
-    # 백필 실행 (--skip-existing 기본 활성화)
-    if ! $BACKFILL_CMD -s "$CHUNK_START" -e "$CHUNK_END"; then
+    # 백필 실행 (--skip-existing 기본 활성화, market_index/sector 포함)
+    if ! $BACKFILL_CMD -s "$CHUNK_START" -e "$CHUNK_END" \
+        -t stock_sync -t ohlcv -t fundamentals -t investor -t sector -t market_index; then
         echo ""
         echo "ERROR: Chunk #${CHUNK_NUM} 실패! (${CHUNK_START} ~ ${CHUNK_END})"
         echo "재개하려면: $0 $CHUNK_START $END_DATE"
