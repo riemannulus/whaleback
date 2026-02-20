@@ -53,9 +53,7 @@ class InvestorTradingCollector(BaseCollector):
                             merged[ticker_str][col_name] = int(val)
 
                 except Exception as e:
-                    logger.warning(
-                        f"Failed to get {investor_kr} data for {market}: {e}"
-                    )
+                    logger.warning(f"Failed to get {investor_kr} data for {market}: {e}")
                     continue
 
         if not merged:

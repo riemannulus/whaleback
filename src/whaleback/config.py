@@ -31,9 +31,36 @@ class Settings(BaseSettings):
     # Backfill
     backfill_start_date: str = "20200101"
 
+    # Redis
+    redis_url: str = "redis://localhost:6379/0"
+
+    # API Server
+    api_host: str = "0.0.0.0"
+    api_port: int = 8000
+    cors_origins: list[str] = ["http://localhost:3000"]
+
+    # Cache
+    cache_ttl: int = 300  # seconds
+
+    # Analysis parameters
+    risk_free_rate: float = 0.035  # Korean 10yr bond yield ~3.5%
+    equity_risk_premium: float = 0.065  # Korea ERP ~6.5%
+    whale_lookback_days: int = 20
+
+    # Analysis scheduler
+    analysis_schedule_hour: int = 19
+    analysis_schedule_minute: int = 0
+
     @property
     def database_url(self) -> str:
         return (
             f"postgresql+psycopg2://{self.db_user}:{self.db_password}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+        )
+
+    @property
+    def async_database_url(self) -> str:
+        return (
+            f"postgresql+asyncpg://{self.db_user}:{self.db_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
         )

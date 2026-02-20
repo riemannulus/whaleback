@@ -1,5 +1,4 @@
 import logging
-import sys
 from datetime import date, datetime, timedelta
 
 import click
@@ -20,8 +19,14 @@ def cli(verbose: bool):
 
 
 @cli.command()
-@click.option("--date", "-d", "target_date", type=str, default=None,
-              help="Target date in YYYYMMDD format (default: today)")
+@click.option(
+    "--date",
+    "-d",
+    "target_date",
+    type=str,
+    default=None,
+    help="Target date in YYYYMMDD format (default: today)",
+)
 def run_once(target_date: str | None):
     """Run a single collection cycle."""
     from whaleback.scheduler.jobs import daily_collection
@@ -35,6 +40,8 @@ def run_once(target_date: str | None):
         from whaleback.collectors.ohlcv import OHLCVCollector
         from whaleback.collectors.fundamentals import FundamentalsCollector
         from whaleback.collectors.investor import InvestorTradingCollector
+        from whaleback.collectors.sector import SectorCollector
+        from whaleback.collectors.index import IndexCollector
 
         target = datetime.strptime(target_date, "%Y%m%d").date()
         client = KRXClient(
@@ -42,6 +49,23 @@ def run_once(target_date: str | None):
             max_retries=settings.krx_max_retries,
             backoff=settings.krx_retry_backoff,
         )
+
+        # Collect sector mappings first (reference data)
+        try:
+            sector_collector = SectorCollector(client)
+            sector_collector.run(target)
+            click.echo("  sector: collection complete")
+        except Exception as e:
+            click.echo(f"  sector: FAILED - {e}", err=True)
+
+        # Collect index data
+        try:
+            index_collector = IndexCollector(client)
+            index_collector.run(target)
+            click.echo("  market_index: collection complete")
+        except Exception as e:
+            click.echo(f"  market_index: FAILED - {e}", err=True)
+
         collectors = [
             StockListCollector(client),
             OHLCVCollector(client),
@@ -86,24 +110,38 @@ def schedule():
 
 
 @cli.command()
-@click.option("--start", "-s", "start_date", required=True,
-              help="Start date in YYYYMMDD format")
-@click.option("--end", "-e", "end_date", default=None,
-              help="End date in YYYYMMDD format (default: yesterday)")
-@click.option("--type", "-t", "collection_types", multiple=True,
-              type=click.Choice(["stock_sync", "ohlcv", "fundamentals", "investor"]),
-              default=("stock_sync", "ohlcv", "fundamentals", "investor"),
-              help="Collection types to backfill")
-@click.option("--skip-existing", is_flag=True, default=True,
-              help="Skip dates that already have successful collections")
-def backfill(start_date: str, end_date: str | None, collection_types: tuple[str, ...],
-             skip_existing: bool):
+@click.option("--start", "-s", "start_date", required=True, help="Start date in YYYYMMDD format")
+@click.option(
+    "--end", "-e", "end_date", default=None, help="End date in YYYYMMDD format (default: yesterday)"
+)
+@click.option(
+    "--type",
+    "-t",
+    "collection_types",
+    multiple=True,
+    type=click.Choice(
+        ["stock_sync", "ohlcv", "fundamentals", "investor", "sector", "market_index"]
+    ),
+    default=("stock_sync", "ohlcv", "fundamentals", "investor"),
+    help="Collection types to backfill",
+)
+@click.option(
+    "--skip-existing",
+    is_flag=True,
+    default=True,
+    help="Skip dates that already have successful collections",
+)
+def backfill(
+    start_date: str, end_date: str | None, collection_types: tuple[str, ...], skip_existing: bool
+):
     """Backfill historical data for a date range."""
     from whaleback.api.krx_client import KRXClient
     from whaleback.collectors.stock_list import StockListCollector
     from whaleback.collectors.ohlcv import OHLCVCollector
     from whaleback.collectors.fundamentals import FundamentalsCollector
     from whaleback.collectors.investor import InvestorTradingCollector
+    from whaleback.collectors.sector import SectorCollector
+    from whaleback.collectors.index import IndexCollector
     from whaleback.db.repositories import is_collected
 
     settings = Settings()
@@ -118,10 +156,16 @@ def backfill(start_date: str, end_date: str | None, collection_types: tuple[str,
         "ohlcv": OHLCVCollector,
         "fundamentals": FundamentalsCollector,
         "investor": InvestorTradingCollector,
+        "sector": SectorCollector,
+        "market_index": IndexCollector,
     }
 
     start = datetime.strptime(start_date, "%Y%m%d").date()
-    end = datetime.strptime(end_date, "%Y%m%d").date() if end_date else date.today() - timedelta(days=1)
+    end = (
+        datetime.strptime(end_date, "%Y%m%d").date()
+        if end_date
+        else date.today() - timedelta(days=1)
+    )
 
     click.echo(f"Backfilling {', '.join(collection_types)} from {start} to {end}")
 
@@ -172,6 +216,10 @@ def init_db():
         "daily_ohlcv": "daily_ohlcv",
         "fundamentals": "fundamentals",
         "investor_trading": "investor_trading",
+        "market_index": "market_index",
+        "analysis_quant_snapshot": "analysis_quant_snapshot",
+        "analysis_whale_snapshot": "analysis_whale_snapshot",
+        "analysis_trend_snapshot": "analysis_trend_snapshot",
     }
 
     with engine.begin() as conn:
@@ -181,11 +229,13 @@ def init_db():
                 start_val = f"{year}-01-01"
                 end_val = f"{year + 1}-01-01"
                 try:
-                    conn.execute(text(
-                        f"CREATE TABLE IF NOT EXISTS {partition_name} "
-                        f"PARTITION OF {table_name} "
-                        f"FOR VALUES FROM ('{start_val}') TO ('{end_val}')"
-                    ))
+                    conn.execute(
+                        text(
+                            f"CREATE TABLE IF NOT EXISTS {partition_name} "
+                            f"PARTITION OF {table_name} "
+                            f"FOR VALUES FROM ('{start_val}') TO ('{end_val}')"
+                        )
+                    )
                     click.echo(f"  Created partition: {partition_name}")
                 except Exception as e:
                     if "already exists" in str(e):
@@ -202,6 +252,7 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_fundamentals_ticker ON fundamentals (ticker, trade_date DESC)",
         "CREATE INDEX IF NOT EXISTS idx_investor_ticker ON investor_trading (ticker, trade_date DESC)",
         "CREATE INDEX IF NOT EXISTS idx_collection_log_date ON collection_log (target_date DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_sector_mapping_sector ON sector_mapping (sector)",
     ]
 
     with engine.begin() as conn:
@@ -211,7 +262,69 @@ def init_db():
             except Exception as e:
                 click.echo(f"  Index warning: {e}", err=True)
 
+    # Create per-partition indexes for new tables
+    click.echo("Creating partition-specific indexes...")
+    partition_index_templates = [
+        "CREATE INDEX IF NOT EXISTS idx_market_index_code_date_{year} ON market_index_{year} (index_code, trade_date)",
+        "CREATE INDEX IF NOT EXISTS idx_quant_grade_{year} ON analysis_quant_snapshot_{year} (trade_date, investment_grade)",
+        "CREATE INDEX IF NOT EXISTS idx_quant_fscore_{year} ON analysis_quant_snapshot_{year} (trade_date, fscore DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_whale_score_{year} ON analysis_whale_snapshot_{year} (trade_date, whale_score DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_whale_signal_{year} ON analysis_whale_snapshot_{year} (trade_date, signal)",
+        "CREATE INDEX IF NOT EXISTS idx_trend_sector_{year} ON analysis_trend_snapshot_{year} (trade_date, sector)",
+        "CREATE INDEX IF NOT EXISTS idx_trend_rs_{year} ON analysis_trend_snapshot_{year} (trade_date, rs_percentile DESC)",
+    ]
+
+    with engine.begin() as conn:
+        for year in range(2020, date.today().year + 3):
+            for template in partition_index_templates:
+                stmt = template.format(year=year)
+                try:
+                    conn.execute(text(stmt))
+                except Exception as e:
+                    if "does not exist" not in str(e):
+                        click.echo(f"  Index warning: {e}", err=True)
+
     click.echo("Database initialization complete.")
+
+
+@cli.command()
+@click.option("--host", default="0.0.0.0", help="Host to bind to")
+@click.option("--port", default=8000, type=int, help="Port to listen on")
+@click.option("--reload", "use_reload", is_flag=True, help="Enable auto-reload for development")
+def serve(host: str, port: int, use_reload: bool):
+    """Start the Whaleback API server."""
+    import uvicorn
+    from whaleback.logging_config import setup_logging
+
+    setup_logging()
+
+    click.echo(f"Starting Whaleback API on {host}:{port}...")
+    uvicorn.run(
+        "whaleback.web.app:create_app",
+        host=host,
+        port=port,
+        reload=use_reload,
+        factory=True,
+    )
+
+
+@cli.command("compute-analysis")
+@click.option(
+    "--date", "-d", "date_str", default=None, help="Target date (YYYYMMDD). Default: today."
+)
+def compute_analysis(date_str: str | None):
+    """Compute analysis scores (quant, whale, trend) for all active tickers."""
+    from whaleback.analysis.compute import AnalysisComputer
+
+    if date_str:
+        target_date = datetime.strptime(date_str, "%Y%m%d").date()
+    else:
+        target_date = date.today()
+
+    click.echo(f"Computing analysis for {target_date}...")
+    computer = AnalysisComputer()
+    results = computer.run(target_date)
+    click.echo(f"Analysis complete: {results}")
 
 
 if __name__ == "__main__":

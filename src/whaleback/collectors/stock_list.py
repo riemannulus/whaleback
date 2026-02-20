@@ -3,10 +3,8 @@ from datetime import date
 
 import pandas as pd
 
-from whaleback.api.krx_client import KRXClient
 from whaleback.collectors.base import BaseCollector
 from whaleback.db.engine import get_session
-from whaleback.db.models import Stock
 from whaleback.db.repositories import get_active_tickers, upsert_stocks
 
 logger = logging.getLogger(__name__)

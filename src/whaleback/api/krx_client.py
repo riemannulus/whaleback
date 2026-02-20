@@ -61,13 +61,9 @@ class KRXClient:
         """Get fundamentals for ALL tickers on a single date. Returns DataFrame indexed by ticker."""
         return self._call(stock.get_market_fundamental, date_str, market=market)
 
-    def get_investor_trading_by_ticker(
-        self, start: str, end: str, ticker: str
-    ) -> pd.DataFrame:
+    def get_investor_trading_by_ticker(self, start: str, end: str, ticker: str) -> pd.DataFrame:
         """Get investor net trading values for a single ticker over date range."""
-        return self._call(
-            stock.get_market_trading_value_by_date, start, end, ticker
-        )
+        return self._call(stock.get_market_trading_value_by_date, start, end, ticker)
 
     def get_net_purchases_by_ticker(
         self, start: str, end: str, market: str = "KOSPI", investor: str = "개인"
@@ -76,3 +72,28 @@ class KRXClient:
         return self._call(
             stock.get_market_net_purchases_of_equities_by_ticker, start, end, market, investor
         )
+
+    def get_index_ohlcv_by_date(self, date_str: str, index_code: str = "1001") -> pd.DataFrame:
+        """Get index OHLCV for a single date. Default: KOSPI (1001)."""
+        return self._call(stock.get_index_ohlcv_by_date, date_str, index_code)
+
+    def get_index_ticker_list(self, date_str: str, market: str = "KOSPI") -> list[str]:
+        """Get index code list for a market."""
+        return self._call(stock.get_index_ticker_list, date_str, market)
+
+    def get_market_sector_ticker_list(
+        self, date_str: str, market: str = "KOSPI"
+    ) -> dict[str, list[str]]:
+        """Get sector-to-ticker mapping. Returns dict: sector_name -> [ticker_list]."""
+        sectors = {}
+        # pykrx provides sector index tickers, we need to iterate them
+        sector_tickers = self._call(stock.get_index_ticker_list, date_str, market)
+        for sector_code in sector_tickers:
+            try:
+                name = self._call(stock.get_index_ticker_name, sector_code)
+                tickers = self._call(stock.get_index_portfolio_deposit_file, date_str, sector_code)
+                if tickers:
+                    sectors[name] = list(tickers)
+            except Exception:
+                continue
+        return sectors

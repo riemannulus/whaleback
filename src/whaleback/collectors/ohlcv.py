@@ -56,16 +56,22 @@ class OHLCVCollector(BaseCollector):
     def persist(self, df: pd.DataFrame, target_date: date, session) -> int:
         rows = []
         for ticker, row in df.iterrows():
-            rows.append({
-                "ticker": str(ticker),
-                "trade_date": target_date,
-                "open": int(row["open"]) if pd.notna(row.get("open")) else None,
-                "high": int(row["high"]) if pd.notna(row.get("high")) else None,
-                "low": int(row["low"]) if pd.notna(row.get("low")) else None,
-                "close": int(row["close"]),
-                "volume": int(row["volume"]),
-                "trading_value": int(row["trading_value"]) if pd.notna(row.get("trading_value")) else None,
-                "change_rate": float(row["change_rate"]) if pd.notna(row.get("change_rate")) else None,
-            })
+            rows.append(
+                {
+                    "ticker": str(ticker),
+                    "trade_date": target_date,
+                    "open": int(row["open"]) if pd.notna(row.get("open")) else None,
+                    "high": int(row["high"]) if pd.notna(row.get("high")) else None,
+                    "low": int(row["low"]) if pd.notna(row.get("low")) else None,
+                    "close": int(row["close"]),
+                    "volume": int(row["volume"]),
+                    "trading_value": int(row["trading_value"])
+                    if pd.notna(row.get("trading_value"))
+                    else None,
+                    "change_rate": float(row["change_rate"])
+                    if pd.notna(row.get("change_rate"))
+                    else None,
+                }
+            )
 
         return upsert_ohlcv(rows, session=session)

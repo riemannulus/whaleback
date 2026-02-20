@@ -2,7 +2,6 @@ import logging
 from datetime import date
 from typing import Any
 
-import pandas as pd
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -69,11 +68,61 @@ def upsert_investor_trading(rows: list[dict[str, Any]], session: Session | None 
         rows,
         conflict_columns=["trade_date", "ticker"],
         update_columns=[
-            "institution_net", "foreign_net", "individual_net", "pension_net",
-            "financial_invest_net", "insurance_net", "trust_net", "private_equity_net",
-            "bank_net", "other_financial_net", "other_corp_net", "other_foreign_net",
+            "institution_net",
+            "foreign_net",
+            "individual_net",
+            "pension_net",
+            "financial_invest_net",
+            "insurance_net",
+            "trust_net",
+            "private_equity_net",
+            "bank_net",
+            "other_financial_net",
+            "other_corp_net",
+            "other_foreign_net",
             "total_net",
         ],
+        session=session,
+    )
+
+
+def upsert_sector_mapping(rows: list[dict[str, Any]], session: Session | None = None) -> int:
+    """Upsert sector mapping records."""
+    from whaleback.db.models import SectorMapping
+
+    if not rows:
+        return 0
+
+    def _do(sess: Session):
+        stmt = pg_insert(SectorMapping).values(rows)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["ticker"],
+            set_={
+                "sector": stmt.excluded.sector,
+                "sector_en": stmt.excluded.sector_en,
+                "sub_sector": stmt.excluded.sub_sector,
+            },
+        )
+        sess.execute(stmt)
+
+    if session is not None:
+        _do(session)
+    else:
+        with get_session() as sess:
+            _do(sess)
+    logger.info(f"Upserted {len(rows)} sector mappings")
+    return len(rows)
+
+
+def upsert_market_index(rows: list[dict[str, Any]], session: Session | None = None) -> int:
+    """Upsert market index records in batches."""
+    from whaleback.db.models import MarketIndex
+
+    return _batch_upsert(
+        MarketIndex,
+        rows,
+        conflict_columns=["trade_date", "index_code"],
+        update_columns=["index_name", "close", "change_rate", "volume", "trading_value"],
         session=session,
     )
 

@@ -49,23 +49,20 @@ class BaseCollector(ABC):
 
     @property
     @abstractmethod
-    def collection_type(self) -> str:
-        ...
+    def collection_type(self) -> str: ...
 
     @abstractmethod
-    def fetch(self, date_str: str) -> pd.DataFrame:
-        ...
+    def fetch(self, date_str: str) -> pd.DataFrame: ...
 
     @abstractmethod
-    def validate(self, df: pd.DataFrame) -> pd.DataFrame:
-        ...
+    def validate(self, df: pd.DataFrame) -> pd.DataFrame: ...
 
     @abstractmethod
-    def persist(self, df: pd.DataFrame, target_date: date, session) -> int:
-        ...
+    def persist(self, df: pd.DataFrame, target_date: date, session) -> int: ...
 
     def _log_start(self, session, target_date: date):
         from sqlalchemy.dialects.postgresql import insert as pg_insert
+
         stmt = pg_insert(CollectionLog).values(
             collection_type=self.collection_type,
             target_date=target_date,
@@ -78,7 +75,9 @@ class BaseCollector(ABC):
         session.execute(stmt)
         session.flush()
 
-    def _log_end(self, session, target_date: date, status: str, count: int = 0, error: str | None = None):
+    def _log_end(
+        self, session, target_date: date, status: str, count: int = 0, error: str | None = None
+    ):
         log = (
             session.query(CollectionLog)
             .filter_by(collection_type=self.collection_type, target_date=target_date)
