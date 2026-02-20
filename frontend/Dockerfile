@@ -16,6 +16,8 @@ COPY . .
 # NEXT_PUBLIC_API_URL must be empty so client-side JS uses same-origin (/api/...)
 # Next.js rewrites then proxy to BACKEND_INTERNAL_URL server-side
 ENV NEXT_PUBLIC_API_URL=""
+# Rewrites are evaluated at build time, so BACKEND_INTERNAL_URL must be set here
+ENV BACKEND_INTERNAL_URL=http://backend:8000
 
 RUN npm run build
 
