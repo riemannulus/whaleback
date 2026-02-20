@@ -1,0 +1,112 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${WB_DB_NAME:-whaleback}
+      POSTGRES_USER: ${WB_DB_USER:-whaleback}
+      POSTGRES_PASSWORD: ${WB_DB_PASSWORD:-changeme}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${WB_DB_USER:-whaleback}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      WB_DB_HOST: db
+      WB_DB_PORT: 5432
+      WB_DB_NAME: ${WB_DB_NAME:-whaleback}
+      WB_DB_USER: ${WB_DB_USER:-whaleback}
+      WB_DB_PASSWORD: ${WB_DB_PASSWORD:-changeme}
+      WB_REDIS_URL: redis://redis:6379/0
+      WB_API_HOST: "0.0.0.0"
+      WB_API_PORT: 8000
+      WB_CORS_ORIGINS: '["http://localhost:3000"]'
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      BACKEND_INTERNAL_URL: http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["init"]
+    environment:
+      WB_DB_HOST: db
+      WB_DB_PORT: 5432
+      WB_DB_NAME: ${WB_DB_NAME:-whaleback}
+      WB_DB_USER: ${WB_DB_USER:-whaleback}
+      WB_DB_PASSWORD: ${WB_DB_PASSWORD:-changeme}
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - setup
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["whaleback", "schedule"]
+    environment:
+      WB_DB_HOST: db
+      WB_DB_PORT: 5432
+      WB_DB_NAME: ${WB_DB_NAME:-whaleback}
+      WB_DB_USER: ${WB_DB_USER:-whaleback}
+      WB_DB_PASSWORD: ${WB_DB_PASSWORD:-changeme}
+      WB_REDIS_URL: redis://redis:6379/0
+      WB_SCHEDULE_HOUR: ${WB_SCHEDULE_HOUR:-18}
+      WB_SCHEDULE_MINUTE: ${WB_SCHEDULE_MINUTE:-30}
+      WB_ANALYSIS_SCHEDULE_HOUR: ${WB_ANALYSIS_SCHEDULE_HOUR:-19}
+      WB_ANALYSIS_SCHEDULE_MINUTE: ${WB_ANALYSIS_SCHEDULE_MINUTE:-0}
+      WB_TIMEZONE: Asia/Seoul
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:

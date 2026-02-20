@@ -67,7 +67,113 @@ Whaleback은 한국 주식시장의 데이터를 자동으로 수집하고, 퀀�
 - **PostgreSQL 15+**: 시계열 데이터 파티셔닝 (연도별)
 - **테이블**: stocks, daily_ohlcv, fundamentals, investor_trading, sector_mapping, market_index, analysis_*_snapshot
 
-## 빠른 시작
+## 빠른 시작 (Docker)
+
+Docker Compose를 사용하면 한 번에 전체 시스템을 실행할 수 있습니다.
+
+### 요구사항
+
+- Docker 20.10+
+- Docker Compose v2+
+
+### 1단계: 저장소 클론 및 환경 설정
+
+```bash
+git clone <repository-url>
+cd Whaleback
+
+# 환경 변수 파일 생성 (필요시 수정)
+cp .env.example .env
+```
+
+### 2단계: 빌드 및 실행
+
+```bash
+# 전체 서비스 빌드 및 시작
+docker compose up -d
+
+# DB 초기화 (최초 1회만)
+docker compose run --rm init
+```
+
+### 3단계: 데이터 수집
+
+```bash
+# 최신 데이터 수집 (특정 날짜)
+docker compose exec backend whaleback run-once -d 20260220
+
+# 과거 데이터 백필
+docker compose exec backend whaleback backfill -s 20260101
+
+# 분석 계산 실행
+docker compose exec backend whaleback compute-analysis
+```
+
+### 4단계: 접속
+
+| 서비스 | URL |
+|--------|-----|
+| 웹 인터페이스 | http://localhost:3000 |
+| API 서버 | http://localhost:8000 |
+| API 문서 (Swagger) | http://localhost:8000/docs |
+
+### Docker 서비스 구성
+
+| 서비스 | 설명 | 포트 |
+|--------|------|------|
+| `db` | PostgreSQL 16 데이터베이스 | 5432 |
+| `redis` | Redis 7 캐시 | 6379 |
+| `backend` | FastAPI REST API 서버 | 8000 |
+| `frontend` | Next.js 웹 인터페이스 | 3000 |
+| `scheduler` | 자동 데이터 수집 스케줄러 (평일 18:30 수집, 19:00 분석) | - |
+| `init` | DB 초기화 (최초 1회, `--profile setup`) | - |
+
+### 주요 명령어
+
+```bash
+# 서비스 시작/중지
+docker compose up -d          # 전체 시작 (백그라운드)
+docker compose down            # 전체 중지
+docker compose down -v         # 중지 + 데이터 볼륨 삭제
+
+# 로그 확인
+docker compose logs -f backend    # 백엔드 로그
+docker compose logs -f scheduler  # 스케줄러 로그
+docker compose logs -f            # 전체 로그
+
+# 데이터 관리
+docker compose exec backend whaleback run-once              # 오늘 데이터 수집
+docker compose exec backend whaleback run-once -d 20260220  # 특정일 수집
+docker compose exec backend whaleback backfill -s 20260101  # 백필
+docker compose exec backend whaleback compute-analysis      # 분석 실행
+
+# 서비스 상태 확인
+docker compose ps
+```
+
+### 환경 변수 커스터마이징
+
+`.env` 파일에서 주요 설정을 변경할 수 있습니다:
+
+```ini
+# DB 비밀번호 변경 (권장)
+WB_DB_PASSWORD=your_secure_password
+
+# 포트 변경
+API_PORT=8000
+FRONTEND_PORT=3000
+DB_PORT=5432
+
+# 수집 스케줄 변경 (KST 기준)
+WB_SCHEDULE_HOUR=18
+WB_SCHEDULE_MINUTE=30
+WB_ANALYSIS_SCHEDULE_HOUR=19
+WB_ANALYSIS_SCHEDULE_MINUTE=0
+```
+
+---
+
+## 로컬 개발 환경 (Docker 없이)
 
 ### 요구사항
 
@@ -245,6 +351,7 @@ Whaleback/
 │           ├── trend.py
 │           └── system.py
 ├── frontend/                # Next.js 프론트엔드
+│   ├── Dockerfile           # 프론트엔드 Docker 이미지
 │   ├── src/
 │   │   ├── app/             # App Router 페이지
 │   │   │   ├── page.tsx     # 대시보드
@@ -256,6 +363,12 @@ Whaleback/
 │   └── package.json
 ├── tests/                   # 테스트 파일
 ├── migrations/              # Alembic 마이그레이션
+├── scripts/                 # 유틸리티 스크립트
+│   ├── docker-entrypoint.sh # Docker 엔트리포인트
+│   ├── run_dev.sh           # 로컬 개발 서버 실행
+│   └── backfill.py          # 백필 유틸리티
+├── Dockerfile               # 백엔드 Docker 이미지
+├── docker-compose.yml       # Docker Compose 설정
 ├── pyproject.toml           # Python 프로젝트 설정
 ├── .env.example             # 환경 변수 템플릿
 └── README.md                # 본 파일
