@@ -72,7 +72,7 @@ export function useWhaleScore(ticker: string) {
   });
 }
 
-export function useWhaleTop(params?: { market?: string; min_score?: number; page?: number; size?: number }) {
+export function useWhaleTop(params?: { market?: string; min_score?: number; signal?: string; page?: number; size?: number }) {
   return useQuery({
     queryKey: ["whale", "top", params],
     queryFn: () => whaleApi.top(params),

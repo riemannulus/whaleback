@@ -272,6 +272,7 @@ async def get_whale_top(
     as_of_date: date | None = None,
     market: str | None = None,
     min_score: float | None = None,
+    signal: str | None = None,
     page: int = 1,
     size: int = 20,
 ) -> tuple[list[dict[str, Any]], int]:
@@ -300,10 +301,13 @@ async def get_whale_top(
         if min_score is not None:
             base = base.where(AnalysisWhaleSnapshot.whale_score >= min_score)
             count_base = count_base.where(AnalysisWhaleSnapshot.whale_score >= min_score)
+        if signal:
+            base = base.where(AnalysisWhaleSnapshot.signal == signal)
+            count_base = count_base.where(AnalysisWhaleSnapshot.signal == signal)
 
         total = (await session.execute(count_base)).scalar() or 0
         base = (
-            base.order_by(desc(AnalysisWhaleSnapshot.whale_score)).offset((page - 1) * size).limit(size)
+            base.order_by(desc(AnalysisWhaleSnapshot.whale_score).nulls_last()).offset((page - 1) * size).limit(size)
         )
 
         result = await session.execute(base)

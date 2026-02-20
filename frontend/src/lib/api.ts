@@ -59,7 +59,7 @@ export const whaleApi = {
   accumulation: (ticker: string, params?: { start_date?: string; end_date?: string }) =>
     fetchApi<any>(`/api/v1/analysis/whale/accumulation/${ticker}`, params),
 
-  top: (params?: { market?: string; min_score?: number; page?: number; size?: number }) =>
+  top: (params?: { market?: string; min_score?: number; signal?: string; page?: number; size?: number }) =>
     fetchApi<any>("/api/v1/analysis/whale/top", params),
 };
 

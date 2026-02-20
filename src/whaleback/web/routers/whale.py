@@ -101,13 +101,14 @@ async def whale_accumulation(
 async def whale_top(
     market: str | None = Query(None),
     min_score: float | None = Query(None, ge=0, le=100),
+    signal: str | None = Query(None),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     session: AsyncSession = Depends(get_db_session),
     cache: CacheService = Depends(get_cache),
 ):
     """Get top whale-accumulated stocks ranked by whale score."""
-    cache_key = f"whale:top:{market}:{min_score}:{page}:{size}"
+    cache_key = f"whale:top:{market}:{min_score}:{signal}:{page}:{size}"
     cached = await cache.get(cache_key)
     if cached:
         return PaginatedResponse(
@@ -116,7 +117,7 @@ async def whale_top(
         )
 
     rows, total = await get_whale_top(
-        session, market=market, min_score=min_score, page=page, size=size
+        session, market=market, min_score=min_score, signal=signal, page=page, size=size
     )
 
     result = {"data": rows, "meta": {"total": total, "page": page, "size": size}}

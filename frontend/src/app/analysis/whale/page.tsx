@@ -28,6 +28,14 @@ const MIN_SCORE_OPTIONS = [
   { value: "70", label: "70점 이상" },
 ];
 
+const SIGNAL_OPTIONS = [
+  { value: "", label: "전체" },
+  { value: "strong_accumulation", label: "강한매집" },
+  { value: "mild_accumulation", label: "약한매집" },
+  { value: "neutral", label: "중립" },
+  { value: "distribution", label: "분산(매도)" },
+];
+
 function getScoreColor(score: number | null): string {
   if (score == null) return "bg-gray-200";
   if (score >= 70) return "bg-emerald-500";
@@ -62,11 +70,13 @@ function WhalePageContent() {
 
   const market = searchParams.get("market") || "";
   const minScore = searchParams.get("min_score") || "0";
+  const signal = searchParams.get("signal") || "";
   const page = parseInt(searchParams.get("page") || "1", 10);
 
   const { data, isLoading, error } = useWhaleTop({
     market: market || undefined,
     min_score: parseInt(minScore, 10),
+    signal: signal || undefined,
     page,
     size: 20,
   });
@@ -97,6 +107,8 @@ function WhalePageContent() {
     acc[signal] = (acc[signal] || 0) + 1;
     return acc;
   }, {} as Record<string, number>) || {};
+
+  const totalSignalCount = (Object.values(signalCounts) as number[]).reduce((a, b) => a + b, 0);
 
   // Prepare chart data (top 10)
   const chartData = data?.data.slice(0, 10) || [];
@@ -155,6 +167,19 @@ function WhalePageContent() {
           </select>
         </div>
 
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium text-gray-700">시그널:</label>
+          <select
+            value={signal}
+            onChange={(e) => updateParams({ signal: e.target.value })}
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {SIGNAL_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+
         <button
           onClick={resetFilters}
           className="ml-auto px-4 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
@@ -188,10 +213,21 @@ function WhalePageContent() {
             };
 
             return (
-              <div key={key} className={cn("p-4 rounded-lg border", colorMap[config.color])}>
+              <button
+                key={key}
+                onClick={() => updateParams({ signal: signal === key ? "" : key })}
+                className={cn(
+                  "p-4 rounded-lg border text-left transition-all",
+                  colorMap[config.color],
+                  signal === key && "ring-2 ring-offset-1 ring-blue-500"
+                )}
+              >
                 <div className={cn("text-sm font-medium", textColorMap[config.color])}>{config.label}</div>
                 <div className={cn("text-2xl font-bold mt-1", countColorMap[config.color])}>{count}</div>
-              </div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  {totalSignalCount > 0 ? `${((count / totalSignalCount) * 100).toFixed(1)}%` : ""}
+                </div>
+              </button>
             );
           })}
         </div>
