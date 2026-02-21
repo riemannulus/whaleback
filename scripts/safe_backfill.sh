@@ -20,26 +20,56 @@ set -euo pipefail
 PAUSE_SECONDS=300       # 월 간 대기 시간 (초) - KRX 차단 방지 권장값
 # ────────────────────────────────────────────────────────
 
-if [ $# -lt 1 ]; then
-    echo "Usage: $0 START_DATE [END_DATE]"
-    echo "  START_DATE: YYYYMMDD (예: 20250301)"
-    echo "  END_DATE:   YYYYMMDD (기본값: 어제)"
+# ─── 인자 파싱 (위치 무관) ─────────────────────────────
+START_DATE=""
+END_DATE=""
+EXTRA_ARGS=()
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -s|--start)
+            START_DATE="$2"; shift 2 ;;
+        -e|--end)
+            END_DATE="$2"; shift 2 ;;
+        -*)
+            # whaleback backfill 옵션으로 패스스루 (-t, --no-skip-existing 등)
+            EXTRA_ARGS+=("$1")
+            # 값이 필요한 옵션 처리 (-t investor 등)
+            if [ $# -ge 2 ] && [[ "$1" == "-t" || "$1" == "--type" ]]; then
+                EXTRA_ARGS+=("$2"); shift
+            fi
+            shift ;;
+        *)
+            # 위치 인자: 첫 번째는 START_DATE, 두 번째는 END_DATE
+            if [ -z "$START_DATE" ]; then
+                START_DATE="$1"
+            elif [ -z "$END_DATE" ]; then
+                END_DATE="$1"
+            fi
+            shift ;;
+    esac
+done
+
+if [ -z "$START_DATE" ]; then
+    echo "Usage: $0 START_DATE [END_DATE] [OPTIONS]"
+    echo ""
+    echo "  위치 인자:"
+    echo "    START_DATE   YYYYMMDD (예: 20250301)"
+    echo "    END_DATE     YYYYMMDD (기본값: 어제)"
+    echo ""
+    echo "  추가 옵션 (whaleback backfill에 전달):"
+    echo "    -t TYPE              수집 타입 (investor, ohlcv 등)"
+    echo "    --no-skip-existing   이미 수집된 날짜도 재수집"
+    echo ""
+    echo "  예시:"
+    echo "    $0 20250301 20260220 -t investor --no-skip-existing"
+    echo "    $0 --no-skip-existing -s 20230301 -e 20260220"
     exit 1
 fi
 
-START_DATE="$1"
-shift
-
-# 두 번째 인자가 YYYYMMDD 형식이면 END_DATE, 아니면 추가 옵션으로 취급
-if [ $# -ge 1 ] && [[ "$1" =~ ^[0-9]{8}$ ]]; then
-    END_DATE="$1"
-    shift
-else
+if [ -z "$END_DATE" ]; then
     END_DATE="$(date -d 'yesterday' +%Y%m%d 2>/dev/null || date -v-1d +%Y%m%d)"
 fi
-
-# 나머지 인자를 whaleback backfill에 패스스루 (예: -t investor --no-skip-existing)
-EXTRA_ARGS=("$@")
 
 # 날짜 유효성 검사
 validate_date() {
