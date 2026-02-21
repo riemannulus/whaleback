@@ -210,6 +210,22 @@ def init_db():
     click.echo("Creating tables...")
     Base.metadata.create_all(engine)
 
+    # Add columns that may be missing on existing tables (create_all won't alter existing tables)
+    click.echo("Ensuring columns exist...")
+    add_column_statements = [
+        "ALTER TABLE analysis_whale_snapshot ADD COLUMN IF NOT EXISTS private_equity_net_20d BIGINT",
+        "ALTER TABLE analysis_whale_snapshot ADD COLUMN IF NOT EXISTS other_corp_net_20d BIGINT",
+        "ALTER TABLE analysis_whale_snapshot ADD COLUMN IF NOT EXISTS private_equity_consistency NUMERIC(4, 2)",
+        "ALTER TABLE analysis_whale_snapshot ADD COLUMN IF NOT EXISTS other_corp_consistency NUMERIC(4, 2)",
+        "ALTER TABLE analysis_composite_snapshot ADD COLUMN IF NOT EXISTS forecast_score NUMERIC(6, 2)",
+    ]
+    with engine.begin() as conn:
+        for stmt in add_column_statements:
+            try:
+                conn.execute(text(stmt))
+            except Exception as e:
+                click.echo(f"  Column warning: {e}", err=True)
+
     # Create yearly partitions for partitioned tables
     click.echo("Creating partitions...")
     partition_tables = {
