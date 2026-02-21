@@ -126,10 +126,9 @@ def schedule():
     help="Collection types to backfill",
 )
 @click.option(
-    "--skip-existing",
-    is_flag=True,
+    "--skip-existing/--no-skip-existing",
     default=True,
-    help="Skip dates that already have successful collections",
+    help="Skip dates that already have successful collections (default: skip)",
 )
 def backfill(
     start_date: str, end_date: str | None, collection_types: tuple[str, ...], skip_existing: bool

@@ -28,7 +28,18 @@ if [ $# -lt 1 ]; then
 fi
 
 START_DATE="$1"
-END_DATE="${2:-$(date -d 'yesterday' +%Y%m%d 2>/dev/null || date -v-1d +%Y%m%d)}"
+shift
+
+# 두 번째 인자가 YYYYMMDD 형식이면 END_DATE, 아니면 추가 옵션으로 취급
+if [ $# -ge 1 ] && [[ "$1" =~ ^[0-9]{8}$ ]]; then
+    END_DATE="$1"
+    shift
+else
+    END_DATE="$(date -d 'yesterday' +%Y%m%d 2>/dev/null || date -v-1d +%Y%m%d)"
+fi
+
+# 나머지 인자를 whaleback backfill에 패스스루 (예: -t investor --no-skip-existing)
+EXTRA_ARGS=("$@")
 
 # 날짜 유효성 검사
 validate_date() {
@@ -90,6 +101,7 @@ echo " Whaleback Safe Backfill"
 echo "=============================================="
 echo " 시작일: $START_DATE"
 echo " 종료일: $END_DATE"
+echo " 추가 옵션: ${EXTRA_ARGS[*]:-(기본 6개 타입)}"
 echo " 월 간 대기: ${PAUSE_SECONDS}초"
 echo " 명령어: $BACKFILL_CMD"
 echo "=============================================="
@@ -117,9 +129,13 @@ while [ "$CHUNK_START" -le "$END_DATE" ]; do
 
     CHUNK_TS=$(date +%s)
 
-    # 백필 실행 (--skip-existing 기본 활성화, market_index/sector 포함)
-    if ! $BACKFILL_CMD -s "$CHUNK_START" -e "$CHUNK_END" \
-        -t stock_sync -t ohlcv -t fundamentals -t investor -t sector -t market_index; then
+    # 백필 실행 (추가 인자가 없으면 기본 6개 타입 전부, 있으면 패스스루)
+    if [ ${#EXTRA_ARGS[@]} -gt 0 ]; then
+        BACKFILL_ARGS=("${EXTRA_ARGS[@]}")
+    else
+        BACKFILL_ARGS=(-t stock_sync -t ohlcv -t fundamentals -t investor -t sector -t market_index)
+    fi
+    if ! $BACKFILL_CMD -s "$CHUNK_START" -e "$CHUNK_END" "${BACKFILL_ARGS[@]}"; then
         echo ""
         echo "ERROR: Chunk #${CHUNK_NUM} 실패! (${CHUNK_START} ~ ${CHUNK_END})"
         echo "재개하려면: $0 $CHUNK_START $END_DATE"
