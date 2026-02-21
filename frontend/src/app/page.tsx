@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuantRankings, useWhaleTop, useSectorRanking, usePipelineStatus } from "@/lib/queries";
+import { useQuantRankings, useWhaleTop, useSectorRanking, usePipelineStatus, useSimulationRankings } from "@/lib/queries";
 import { formatKRW, formatPercent, formatLargeNumber } from "@/lib/utils";
 import Link from "next/link";
 
@@ -30,11 +30,13 @@ export default function DashboardPage() {
   const { data: whaleData } = useWhaleTop({ size: 10 });
   const { data: sectorData } = useSectorRanking();
   const { data: pipelineData } = usePipelineStatus();
+  const { data: simulationData } = useSimulationRankings({ size: 10 });
 
   const topStocks = quantData?.data || [];
   const topWhales = whaleData?.data || [];
   const sectors = sectorData?.data || [];
   const collections = pipelineData?.data?.collections || [];
+  const topSimulations = simulationData?.data || [];
 
   const lastCollection = collections.length > 0
     ? collections.reduce((a: any, b: any) => (a.completed_at > b.completed_at ? a : b))
@@ -156,6 +158,56 @@ export default function DashboardPage() {
               </tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      {/* Simulation TOP 10 */}
+      <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
+        <SectionHeader title="시뮬레이션 TOP 10" href="/analysis/sector-flow" />
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-slate-500 border-b">
+                <th className="text-left py-2">종목</th>
+                <th className="text-center py-2">등급</th>
+                <th className="text-right py-2">Sim Score</th>
+                <th className="text-right py-2">6M 기대수익</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topSimulations.map((stock: any) => (
+                <tr key={stock.ticker} className="border-b border-slate-50 hover:bg-slate-50">
+                  <td className="py-2">
+                    <Link href={`/stocks/${stock.ticker}?tab=simulation`} className="hover:text-whale-600">
+                      <span className="font-medium">{stock.name}</span>
+                      <span className="text-slate-400 text-xs ml-1">{stock.ticker}</span>
+                    </Link>
+                  </td>
+                  <td className="text-center">
+                    <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${
+                      stock.simulation_grade === "positive" ? "bg-emerald-100 text-emerald-700" :
+                      stock.simulation_grade === "neutral_positive" ? "bg-blue-100 text-blue-700" :
+                      stock.simulation_grade === "neutral" ? "bg-yellow-100 text-yellow-700" :
+                      "bg-red-100 text-red-700"
+                    }`}>
+                      {stock.simulation_grade === "positive" ? "긍정적" :
+                       stock.simulation_grade === "neutral_positive" ? "중립+" :
+                       stock.simulation_grade === "neutral" ? "중립" : "부정적"}
+                    </span>
+                  </td>
+                  <td className="text-right font-medium">{stock.simulation_score?.toFixed(1) ?? "-"}</td>
+                  <td className="text-right">
+                    <span className={stock.expected_return_pct_6m > 0 ? "text-red-600" : "text-blue-600"}>
+                      {stock.expected_return_pct_6m != null ? `${stock.expected_return_pct_6m > 0 ? "+" : ""}${stock.expected_return_pct_6m.toFixed(1)}%` : "-"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {topSimulations.length === 0 && (
+                <tr><td colSpan={4} className="py-4 text-center text-slate-400">데이터 없음</td></tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 

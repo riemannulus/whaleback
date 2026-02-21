@@ -9,6 +9,7 @@ const navItems = [
   { href: "/analysis/quant", label: "퀀트분석" },
   { href: "/analysis/whale", label: "수급분석" },
   { href: "/analysis/trend", label: "추세분석" },
+  { href: "/analysis/sector-flow", label: "섹터수급" },
 ];
 
 export function NavBar() {

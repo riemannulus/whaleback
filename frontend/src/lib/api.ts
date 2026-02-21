@@ -90,6 +90,27 @@ export const compositeApi = {
     fetchApi<any>("/api/v1/analysis/composite/rankings", params),
 };
 
+// Simulation API
+export const simulationApi = {
+  result: (ticker: string) =>
+    fetchApi<any>(`/api/v1/analysis/simulation/${ticker}`),
+
+  rankings: (params?: { market?: string; min_score?: number; page?: number; size?: number }) =>
+    fetchApi<any>("/api/v1/analysis/simulation/top", params),
+};
+
+// Sector Flow API
+export const sectorFlowApi = {
+  overview: () =>
+    fetchApi<any>("/api/v1/analysis/sector-flow/overview"),
+
+  sector: (sectorName: string) =>
+    fetchApi<any>(`/api/v1/analysis/sector-flow/sector/${encodeURIComponent(sectorName)}`),
+
+  heatmap: (params?: { metric?: string }) =>
+    fetchApi<any>("/api/v1/analysis/sector-flow/heatmap", params),
+};
+
 // System API
 export const systemApi = {
   health: () => fetchApi<any>("/api/v1/health"),

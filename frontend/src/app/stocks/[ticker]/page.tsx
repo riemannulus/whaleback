@@ -8,10 +8,11 @@ import { QuantTab } from "@/components/stock/quant-tab";
 import { WhaleTab } from "@/components/stock/whale-tab";
 import { FundamentalsTab } from "@/components/stock/fundamentals-tab";
 import { CompositeTab } from "@/components/stock/composite-tab";
+import { SimulationTab } from "@/components/stock/simulation-tab";
 import { cn, formatKRW, formatPercent, formatLargeNumber } from "@/lib/utils";
 import { useState, useMemo } from "react";
 
-type TabType = "price" | "quant" | "whale" | "fundamental" | "composite";
+type TabType = "price" | "quant" | "whale" | "fundamental" | "composite" | "simulation";
 
 type PeriodType = "1M" | "3M" | "6M" | "1Y" | "ALL";
 
@@ -144,6 +145,7 @@ export default function StockDetailPage() {
             { key: "quant", label: "퀀트" },
             { key: "whale", label: "수급" },
             { key: "fundamental", label: "펀더멘털" },
+            { key: "simulation", label: "시뮬레이션" },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -306,6 +308,8 @@ export default function StockDetailPage() {
       {activeTab === "whale" && <WhaleTab ticker={ticker} />}
 
       {activeTab === "fundamental" && <FundamentalsTab ticker={ticker} />}
+
+      {activeTab === "simulation" && <SimulationTab ticker={ticker} />}
     </div>
   );
 }

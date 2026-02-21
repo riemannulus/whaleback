@@ -10,7 +10,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Investor types tracked for whale analysis
-WHALE_INVESTOR_TYPES = ["institution_net", "foreign_net", "pension_net"]
+WHALE_INVESTOR_TYPES = ["institution_net", "foreign_net", "pension_net", "private_equity_net", "other_corp_net"]
 
 
 def compute_whale_score(
@@ -20,7 +20,7 @@ def compute_whale_score(
 ) -> dict[str, Any]:
     """Compute composite whale score based on institutional buying patterns.
 
-    For each investor type (institution, foreign, pension):
+    For each investor type (institution, foreign, pension, private_equity, other_corp):
       consistency = buy_days / total_days
       intensity = abs(net_value) / avg_daily_trading_value (capped at 1.0)
       sub_score = consistency * 60 + min(intensity * 40, 40)
@@ -29,7 +29,7 @@ def compute_whale_score(
 
     Args:
         investor_data: List of daily investor trading records (newest first or any order).
-            Each record: {trade_date, institution_net, foreign_net, pension_net, ...}
+            Each record: {trade_date, institution_net, foreign_net, pension_net, private_equity_net, other_corp_net, ...}
         avg_daily_trading_value: Average daily trading value for volume normalization.
         lookback_days: Number of trading days to analyze.
 

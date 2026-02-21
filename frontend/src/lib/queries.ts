@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { stocksApi, quantApi, whaleApi, trendApi, compositeApi, systemApi } from "./api";
+import { stocksApi, quantApi, whaleApi, trendApi, compositeApi, simulationApi, sectorFlowApi, systemApi } from "./api";
 import type {
   PaginatedResponse, ApiResponse, StockSummary, StockDetail,
   PriceData, InvestorData, QuantValuation, FScoreDetail,
@@ -123,6 +123,45 @@ export function useCompositeRankings(params?: { market?: string; min_score?: num
   return useQuery({
     queryKey: ["composite", "rankings", params],
     queryFn: () => compositeApi.rankings(params),
+  });
+}
+
+// Simulation hooks
+export function useSimulationResult(ticker: string) {
+  return useQuery({
+    queryKey: ["simulation", "result", ticker],
+    queryFn: () => simulationApi.result(ticker),
+    enabled: !!ticker,
+  });
+}
+
+export function useSimulationRankings(params?: { market?: string; min_score?: number; page?: number; size?: number }) {
+  return useQuery({
+    queryKey: ["simulation", "rankings", params],
+    queryFn: () => simulationApi.rankings(params),
+  });
+}
+
+// Sector Flow hooks
+export function useSectorFlowOverview() {
+  return useQuery({
+    queryKey: ["sectorFlow", "overview"],
+    queryFn: () => sectorFlowApi.overview(),
+  });
+}
+
+export function useSectorFlowDetail(sectorName: string) {
+  return useQuery({
+    queryKey: ["sectorFlow", "sector", sectorName],
+    queryFn: () => sectorFlowApi.sector(sectorName),
+    enabled: !!sectorName,
+  });
+}
+
+export function useSectorFlowHeatmap(metric?: string) {
+  return useQuery({
+    queryKey: ["sectorFlow", "heatmap", metric],
+    queryFn: () => sectorFlowApi.heatmap({ metric }),
   });
 }
 

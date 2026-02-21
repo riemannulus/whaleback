@@ -73,6 +73,8 @@ export interface InvestorData {
   foreign_net: number | null;
   individual_net: number | null;
   pension_net: number | null;
+  private_equity_net: number | null;
+  other_corp_net: number | null;
 }
 
 // Quant types
@@ -139,6 +141,8 @@ export interface WhaleTopItem {
   institution_net_20d: number | null;
   foreign_net_20d: number | null;
   pension_net_20d: number | null;
+  private_equity_net_20d: number | null;
+  other_corp_net_20d: number | null;
 }
 
 // Trend types
@@ -227,6 +231,7 @@ export interface CompositeScore {
   value_score: number | null;
   flow_score: number | null;
   momentum_score: number | null;
+  forecast_score: number | null;
   confidence: number | null;
   axes_available: number | null;
   confluence_tier: number | null;
@@ -255,11 +260,74 @@ export interface CompositeRankingItem {
   value_score: number | null;
   flow_score: number | null;
   momentum_score: number | null;
+  forecast_score: number | null;
   confluence_tier: number | null;
   action_label: string | null;
   score_tier: string | null;
   score_label: string | null;
   score_color: string | null;
+}
+
+// Simulation types
+export interface SimulationHorizon {
+  label: string;
+  p5: number | null;
+  p25: number | null;
+  p50: number | null;
+  p75: number | null;
+  p95: number | null;
+  expected_return_pct: number | null;
+  var_5pct_pct: number | null;
+  upside_prob: number | null;
+}
+
+export interface SimulationResult {
+  ticker: string;
+  name: string | null;
+  trade_date: string;
+  simulation_score: number | null;
+  simulation_grade: string | null;
+  base_price: number | null;
+  mu: number | null;
+  sigma: number | null;
+  num_simulations: number | null;
+  input_days_used: number | null;
+  horizons: Record<string, SimulationHorizon> | null;
+  target_probs: Record<string, Record<string, number>> | null;
+}
+
+export interface SimulationTopItem {
+  ticker: string;
+  name: string | null;
+  market: string | null;
+  simulation_score: number | null;
+  simulation_grade: string | null;
+  base_price: number | null;
+  expected_return_pct_6m: number | null;
+  upside_prob_3m: number | null;
+}
+
+// Sector Flow types
+export interface SectorFlowItem {
+  net_purchase: number | null;
+  intensity: number | null;
+  consistency: number | null;
+  signal: string | null;
+  trend_5d: number | null;
+  trend_20d: number | null;
+}
+
+export interface SectorFlowOverviewItem {
+  sector: string;
+  flows: Record<string, SectorFlowItem>;
+  dominant_signal: string | null;
+}
+
+export interface SectorFlowHeatmapData {
+  sectors: string[];
+  investor_types: string[];
+  matrix: number[][];
+  metric: string;
 }
 
 // System types

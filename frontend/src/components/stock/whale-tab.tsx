@@ -39,9 +39,11 @@ const signalColors: Record<string, { bg: string; text: string; border: string; i
 };
 
 const componentLabels: Record<string, string> = {
-  institution: "기관",
-  foreign: "외국인",
-  pension: "연기금",
+  institution_net: "기관",
+  foreign_net: "외국인",
+  pension_net: "연기금",
+  private_equity_net: "사모펀드",
+  other_corp_net: "기타법인",
 };
 
 export function WhaleTab({ ticker }: WhaleTabProps) {
@@ -183,12 +185,22 @@ export function WhaleTab({ ticker }: WhaleTabProps) {
                   data: last60Days.map((d: InvestorData) => d.pension_net ?? 0),
                   color: "#8b5cf6",
                 },
+                {
+                  name: "사모펀드",
+                  data: last60Days.map((d: InvestorData) => d.private_equity_net ?? 0),
+                  color: "#f59e0b",
+                },
+                {
+                  name: "기타법인",
+                  data: last60Days.map((d: InvestorData) => d.other_corp_net ?? 0),
+                  color: "#ef4444",
+                },
               ]}
               height={350}
               stacked={false}
             />
             <div className="mt-4 text-xs text-slate-500">
-              <strong>해석:</strong> 양(+)의 값은 순매수, 음(-)의 값은 순매도를 나타냅니다. 기관, 외국인, 연기금의
+              <strong>해석:</strong> 양(+)의 값은 순매수, 음(-)의 값은 순매도를 나타냅니다. 기관, 외국인, 연기금, 사모펀드, 기타법인의
               지속적인 순매수는 긍정적 신호로 해석됩니다.
             </div>
           </div>
@@ -200,7 +212,7 @@ export function WhaleTab({ ticker }: WhaleTabProps) {
         <h3 className="text-sm font-semibold text-slate-800 mb-2">고래 스코어란?</h3>
         <div className="text-sm text-slate-600 space-y-2">
           <p>
-            기관, 외국인, 연기금 등 대형 투자자(고래)들의 매수/매도 패턴을 분석하여 0~100점 척도로 수치화한 지표입니다.
+            기관, 외국인, 연기금, 사모펀드, 기타법인 등 5대 고래 투자자들의 매수/매도 패턴을 분석하여 0~100점 척도로 수치화한 지표입니다.
           </p>
           <ul className="list-disc list-inside space-y-1 text-xs">
             <li>
@@ -217,7 +229,7 @@ export function WhaleTab({ ticker }: WhaleTabProps) {
             </li>
           </ul>
           <p className="text-xs text-slate-500 pt-2 border-t">
-            <strong>방법론:</strong> 누적 순매수량, 거래 일관성, 최근 모멘텀을 종합 평가하여 산출합니다. 단기 변동성에
+            <strong>방법론:</strong> 5대 투자 주체(기관, 외국인, 연기금, 사모펀드, 기타법인)의 누적 순매수량, 거래 일관성, 최근 모멘텀을 종합 평가하여 산출합니다. 단기 변동성에
             강건하도록 설계되었습니다.
           </p>
         </div>

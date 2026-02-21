@@ -173,6 +173,10 @@ class AnalysisWhaleSnapshot(Base):
     institution_consistency: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
     foreign_consistency: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
     pension_consistency: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
+    private_equity_net_20d: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    other_corp_net_20d: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    private_equity_consistency: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
+    other_corp_consistency: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
     signal: Mapped[str | None] = mapped_column(String(30), nullable=True)
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -262,6 +266,26 @@ class AnalysisRiskSnapshot(Base):
     )
 
 
+class AnalysisSimulationSnapshot(Base):
+    __tablename__ = "analysis_simulation_snapshot"
+    __table_args__ = ({"postgresql_partition_by": "RANGE (trade_date)"},)
+
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(6), primary_key=True)
+    simulation_score: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    simulation_grade: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    base_price: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    mu: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
+    sigma: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
+    num_simulations: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    input_days_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    horizons: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    target_probs: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class AnalysisCompositeSnapshot(Base):
     __tablename__ = "analysis_composite_snapshot"
     __table_args__ = ({"postgresql_partition_by": "RANGE (trade_date)"},)
@@ -272,6 +296,7 @@ class AnalysisCompositeSnapshot(Base):
     value_score: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     flow_score: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     momentum_score: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    forecast_score: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     confidence: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
     axes_available: Mapped[int | None] = mapped_column(Integer, nullable=True)
     confluence_tier: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -283,6 +308,25 @@ class AnalysisCompositeSnapshot(Base):
     score_tier: Mapped[str | None] = mapped_column(String(20), nullable=True)
     score_label: Mapped[str | None] = mapped_column(String(20), nullable=True)
     score_color: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class AnalysisSectorFlowSnapshot(Base):
+    __tablename__ = "analysis_sector_flow_snapshot"
+    __table_args__ = ({"postgresql_partition_by": "RANGE (trade_date)"},)
+
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    sector: Mapped[str] = mapped_column(String(50), primary_key=True)
+    investor_type: Mapped[str] = mapped_column(String(30), primary_key=True)
+    net_purchase: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    intensity: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    consistency: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
+    signal: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    trend_5d: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    trend_20d: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    stock_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

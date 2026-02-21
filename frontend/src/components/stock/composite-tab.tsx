@@ -3,7 +3,8 @@
 import { useCompositeDetail } from "@/lib/queries";
 import { GaugeChart } from "@/components/charts/gauge-chart";
 import { cn } from "@/lib/utils";
-import { AlertCircle, TrendingUp, Shield, Activity, BarChart3 } from "lucide-react";
+import { AlertCircle, TrendingUp, Shield, Activity, BarChart3, Telescope } from "lucide-react";
+import ReactECharts from "echarts-for-react";
 import type { CompositeDetail, FlowAnalysis, TechnicalAnalysis, RiskAnalysis } from "@/types/api";
 
 interface CompositeTabProps {
@@ -100,7 +101,7 @@ export function CompositeTab({ ticker }: CompositeTabProps) {
               </span>
               <span className="text-sm text-slate-500">
                 신뢰도: {composite.confidence != null ? `${(composite.confidence * 100).toFixed(0)}%` : "N/A"}
-                ({composite.axes_available || 0}/3 축)
+                ({composite.axes_available || 0}/4 축)
               </span>
             </div>
 
@@ -152,6 +153,7 @@ export function CompositeTab({ ticker }: CompositeTabProps) {
             { label: "가치 (Value)", score: composite.value_score, icon: TrendingUp },
             { label: "수급 (Flow)", score: composite.flow_score, icon: BarChart3 },
             { label: "모멘텀 (Momentum)", score: composite.momentum_score, icon: Activity },
+            { label: "전망 (Forecast)", score: composite.forecast_score, icon: Telescope },
           ].map(({ label, score, icon: Icon }) => (
             <div key={label} className="space-y-1">
               <div className="flex items-center justify-between">
@@ -174,6 +176,17 @@ export function CompositeTab({ ticker }: CompositeTabProps) {
         </div>
       </div>
 
+      {/* Radar Chart */}
+      <div className="bg-white rounded-lg border border-slate-200 p-6">
+        <h3 className="text-lg font-semibold text-slate-800 mb-4">4축 레이더</h3>
+        <RadarChart
+          value={composite.value_score}
+          flow={composite.flow_score}
+          momentum={composite.momentum_score}
+          forecast={composite.forecast_score}
+        />
+      </div>
+
       {/* Flow Analysis */}
       {detail.flow && <FlowCard flow={detail.flow} />}
 
@@ -187,10 +200,11 @@ export function CompositeTab({ ticker }: CompositeTabProps) {
       <div className="bg-slate-50 rounded-lg border border-slate-200 p-6">
         <h3 className="text-sm font-semibold text-slate-800 mb-3">WCS 방법론</h3>
         <div className="text-xs text-slate-600 space-y-2">
-          <p><strong>가치(35%):</strong> F-Score(비선형 정규화) + RIM 안전마진(시그모이드) 결합</p>
-          <p><strong>수급(35%):</strong> 기관/외국인/연기금 순매수 종합 Whale Score</p>
-          <p><strong>모멘텀(30%):</strong> KOSPI 대비 상대강도 + 섹터 회전 보정</p>
-          <p className="pt-2 border-t border-slate-300"><strong>합류(Confluence):</strong> 세 축의 신호 일치도에 따라 1-5 티어 부여. 티어가 높을수록 신호 신뢰도가 높습니다.</p>
+          <p><strong>가치(30%):</strong> F-Score(비선형 정규화) + RIM 안전마진(시그모이드) 결합</p>
+          <p><strong>수급(30%):</strong> 기관/외국인/연기금/사모펀드/기타법인 순매수 종합 Whale Score + 섹터 수급 보너스</p>
+          <p><strong>모멘텀(20%):</strong> KOSPI 대비 상대강도 + 섹터 회전 보정</p>
+          <p><strong>전망(20%):</strong> 몬테카를로 시뮬레이션 점수 (6개월 기대수익률 + 상승확률 + VaR)</p>
+          <p className="pt-2 border-t border-slate-300"><strong>합류(Confluence):</strong> 네 축의 신호 일치도에 따라 1-5 티어 부여. 티어가 높을수록 신호 신뢰도가 높습니다.</p>
         </div>
       </div>
     </div>
@@ -367,6 +381,42 @@ function RiskCard({ risk }: { risk: RiskAnalysis }) {
       </div>
     </div>
   );
+}
+
+// --- Sub-components (charts) ---
+
+function RadarChart({ value, flow, momentum, forecast }: { value: number | null; flow: number | null; momentum: number | null; forecast: number | null }) {
+  const option = {
+    radar: {
+      indicator: [
+        { name: "가치", max: 100 },
+        { name: "수급", max: 100 },
+        { name: "모멘텀", max: 100 },
+        { name: "전망", max: 100 },
+      ],
+      shape: "polygon",
+      splitNumber: 4,
+      axisName: { color: "#475569", fontSize: 12 },
+      splitArea: { areaStyle: { color: ["rgba(241, 245, 249, 0.3)", "rgba(241, 245, 249, 0.5)"] } },
+      splitLine: { lineStyle: { color: "#e2e8f0" } },
+    },
+    series: [
+      {
+        type: "radar",
+        data: [
+          {
+            value: [value ?? 0, flow ?? 0, momentum ?? 0, forecast ?? 0],
+            name: "WCS",
+            areaStyle: { color: "rgba(59, 130, 246, 0.2)" },
+            lineStyle: { color: "#3b82f6", width: 2 },
+            itemStyle: { color: "#3b82f6" },
+          },
+        ],
+      },
+    ],
+  };
+
+  return <ReactECharts option={option} style={{ height: 280 }} />;
 }
 
 // --- Label helpers ---

@@ -14,6 +14,14 @@ INVESTOR_TYPES = {
     "외국인": "foreign_net",
     "기관합계": "institution_net",
     "개인": "individual_net",
+    "금융투자": "financial_invest_net",
+    "보험": "insurance_net",
+    "투신": "trust_net",
+    "사모": "private_equity_net",
+    "은행": "bank_net",
+    "기타금융": "other_financial_net",
+    "기타법인": "other_corp_net",
+    "기타외국인": "other_foreign_net",
 }
 
 
@@ -22,7 +30,7 @@ class InvestorTradingCollector(BaseCollector):
 
     Uses get_market_net_purchases_of_equities_by_ticker which returns
     all tickers for a given investor type in a single API call.
-    Total: 4 investor types x 2 markets = 8 API calls (instead of 2700+ per-ticker calls).
+    Total: 12 investor types x 2 markets = 24 API calls (instead of 2700+ per-ticker calls).
     """
 
     @property
@@ -88,16 +96,6 @@ class InvestorTradingCollector(BaseCollector):
                 val = row.get(col)
                 record[col] = int(val) if pd.notna(val) else None
 
-            # Columns not collected in this approach - set to None
-            record.setdefault("financial_invest_net", None)
-            record.setdefault("insurance_net", None)
-            record.setdefault("trust_net", None)
-            record.setdefault("private_equity_net", None)
-            record.setdefault("bank_net", None)
-            record.setdefault("other_financial_net", None)
-            record.setdefault("other_corp_net", None)
-            record.setdefault("other_foreign_net", None)
-            record.setdefault("total_net", None)
             rows.append(record)
 
         return upsert_investor_trading(rows, session=session)

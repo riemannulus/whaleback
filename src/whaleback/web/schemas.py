@@ -92,6 +92,15 @@ class InvestorData(BaseModel):
     foreign_net: int | None = None
     individual_net: int | None = None
     pension_net: int | None = None
+    financial_invest_net: int | None = None
+    insurance_net: int | None = None
+    trust_net: int | None = None
+    private_equity_net: int | None = None
+    bank_net: int | None = None
+    other_financial_net: int | None = None
+    other_corp_net: int | None = None
+    other_foreign_net: int | None = None
+    total_net: int | None = None
 
 
 # --- Quant Analysis schemas ---
@@ -165,6 +174,8 @@ class WhaleAccumulationDay(BaseModel):
     institution_net: int | None = None
     foreign_net: int | None = None
     pension_net: int | None = None
+    private_equity_net: int | None = None
+    other_corp_net: int | None = None
 
 
 class WhaleTopItem(BaseModel):
@@ -176,6 +187,8 @@ class WhaleTopItem(BaseModel):
     institution_net_20d: int | None = None
     foreign_net_20d: int | None = None
     pension_net_20d: int | None = None
+    private_equity_net_20d: int | None = None
+    other_corp_net_20d: int | None = None
 
 
 # --- Trend Analysis schemas ---
@@ -276,8 +289,9 @@ class CompositeScore(BaseModel):
     value_score: float | None = Field(None, description="Value axis score (0-100)")
     flow_score: float | None = Field(None, description="Flow axis score (0-100)")
     momentum_score: float | None = Field(None, description="Momentum axis score (0-100)")
+    forecast_score: float | None = Field(None, description="Forecast axis score (0-100)")
     confidence: float | None = Field(None, description="Score confidence (0.0-1.0)")
-    axes_available: int | None = Field(None, description="Number of axes with data (0-3)")
+    axes_available: int | None = Field(None, description="Number of axes with data (0-4)")
     confluence_tier: int | None = Field(None, description="Signal confluence tier (1-5)")
     confluence_pattern: str | None = None
     divergence_type: str | None = None
@@ -305,11 +319,79 @@ class CompositeRankingItem(BaseModel):
     value_score: float | None = None
     flow_score: float | None = None
     momentum_score: float | None = None
+    forecast_score: float | None = None
     confluence_tier: int | None = None
     action_label: str | None = None
     score_tier: str | None = None
     score_label: str | None = None
     score_color: str | None = None
+
+
+# --- Simulation schemas ---
+
+
+class SimulationHorizon(BaseModel):
+    label: str
+    p5: int | None = None
+    p25: int | None = None
+    p50: int | None = None
+    p75: int | None = None
+    p95: int | None = None
+    expected_return_pct: float | None = None
+    var_5pct_pct: float | None = None
+    upside_prob: float | None = None
+
+
+class SimulationResult(BaseModel):
+    ticker: str
+    name: str | None = None
+    as_of_date: str
+    base_price: int | None = None
+    simulation_score: float | None = None
+    simulation_grade: str | None = None
+    mu: float | None = None
+    sigma: float | None = None
+    num_simulations: int | None = None
+    input_days_used: int | None = None
+    horizons: dict[str, SimulationHorizon] | None = None
+    target_probs: dict[str, dict[str, float]] | None = None
+
+
+class SimulationTopItem(BaseModel):
+    ticker: str
+    name: str | None = None
+    market: str | None = None
+    simulation_score: float | None = None
+    simulation_grade: str | None = None
+    base_price: int | None = None
+    expected_return_pct_6m: float | None = None
+    upside_prob_3m: float | None = None
+
+
+# --- Sector Flow schemas ---
+
+
+class SectorFlowItem(BaseModel):
+    net_purchase: int | None = None
+    intensity: float | None = None
+    consistency: float | None = None
+    signal: str | None = None
+    trend_5d: int | None = None
+    trend_20d: int | None = None
+
+
+class SectorFlowOverviewItem(BaseModel):
+    sector: str
+    flows: dict[str, SectorFlowItem]
+    stock_count: int
+    dominant_signal: str | None = None
+
+
+class SectorFlowHeatmapData(BaseModel):
+    sectors: list[str]
+    investor_types: list[str]
+    matrix: list[list[float | None]]
+    signals: list[list[str | None]]
 
 
 # --- System schemas ---

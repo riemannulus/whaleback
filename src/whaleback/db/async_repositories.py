@@ -19,6 +19,8 @@ from whaleback.db.models import (
     AnalysisTechnicalSnapshot,
     AnalysisRiskSnapshot,
     AnalysisCompositeSnapshot,
+    AnalysisSimulationSnapshot,
+    AnalysisSectorFlowSnapshot,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,6 +30,9 @@ ALLOWED_SORT_FIELDS = {"safety_margin", "fscore", "rim_value", "data_completenes
 
 # Whitelist of allowed sort fields for composite rankings
 ALLOWED_COMPOSITE_SORT_FIELDS = {"composite_score", "value_score", "flow_score", "momentum_score", "confluence_tier"}
+
+# Whitelist of allowed sort fields for simulation rankings
+ALLOWED_SIMULATION_SORT_FIELDS = {"simulation_score"}
 
 
 async def get_stocks_paginated(
@@ -544,6 +549,77 @@ async def get_composite_rankings(
         return [], 0
 
 
+async def get_simulation_snapshot(
+    session: AsyncSession, ticker: str, as_of_date: date | None = None
+) -> dict[str, Any] | None:
+    """Get simulation snapshot for a ticker."""
+    try:
+        if as_of_date is None:
+            as_of_date = await get_latest_analysis_date(session)
+            if as_of_date is None:
+                return None
+        query = select(AnalysisSimulationSnapshot).where(
+            and_(AnalysisSimulationSnapshot.ticker == ticker, AnalysisSimulationSnapshot.trade_date == as_of_date)
+        )
+        result = (await session.execute(query)).scalar_one_or_none()
+        return _simulation_to_dict(result) if result else None
+    except Exception:
+        await session.rollback()
+        logger.warning(f"Failed to get simulation snapshot for {ticker}")
+        return None
+
+
+async def get_simulation_top(
+    session: AsyncSession,
+    as_of_date: date | None = None,
+    market: str | None = None,
+    min_score: float | None = None,
+    sort_by: str = "simulation_score",
+    page: int = 1,
+    size: int = 20,
+) -> tuple[list[dict[str, Any]], int]:
+    """Get top stocks by simulation score."""
+    try:
+        if as_of_date is None:
+            as_of_date = await get_latest_analysis_date(session)
+            if as_of_date is None:
+                return [], 0
+        base = (
+            select(AnalysisSimulationSnapshot, Stock.name, Stock.market)
+            .join(Stock, AnalysisSimulationSnapshot.ticker == Stock.ticker)
+            .where(AnalysisSimulationSnapshot.trade_date == as_of_date)
+            .where(AnalysisSimulationSnapshot.simulation_score.isnot(None))
+        )
+        count_base = (
+            select(func.count())
+            .select_from(AnalysisSimulationSnapshot)
+            .join(Stock, AnalysisSimulationSnapshot.ticker == Stock.ticker)
+            .where(AnalysisSimulationSnapshot.trade_date == as_of_date)
+            .where(AnalysisSimulationSnapshot.simulation_score.isnot(None))
+        )
+        if market:
+            base = base.where(Stock.market == market)
+            count_base = count_base.where(Stock.market == market)
+        if min_score is not None:
+            base = base.where(AnalysisSimulationSnapshot.simulation_score >= min_score)
+            count_base = count_base.where(AnalysisSimulationSnapshot.simulation_score >= min_score)
+        total = (await session.execute(count_base)).scalar() or 0
+        base = base.order_by(desc(AnalysisSimulationSnapshot.simulation_score).nulls_last()).offset((page - 1) * size).limit(size)
+        result = await session.execute(base)
+        rows = []
+        for row in result.all():
+            snapshot = row[0]
+            d = _simulation_to_dict(snapshot)
+            d["name"] = row[1]
+            d["market"] = row[2]
+            rows.append(d)
+        return rows, total
+    except Exception:
+        await session.rollback()
+        logger.warning("Failed to get simulation top")
+        return [], 0
+
+
 async def get_collection_status(session: AsyncSession) -> list[dict[str, Any]]:
     """Get latest collection status per type."""
     # Subquery: max id per collection_type
@@ -615,6 +691,15 @@ def _investor_to_dict(i: InvestorTrading) -> dict[str, Any]:
         "foreign_net": int(i.foreign_net) if i.foreign_net else None,
         "individual_net": int(i.individual_net) if i.individual_net else None,
         "pension_net": int(i.pension_net) if i.pension_net else None,
+        "financial_invest_net": int(i.financial_invest_net) if i.financial_invest_net else None,
+        "insurance_net": int(i.insurance_net) if i.insurance_net else None,
+        "trust_net": int(i.trust_net) if i.trust_net else None,
+        "private_equity_net": int(i.private_equity_net) if i.private_equity_net else None,
+        "bank_net": int(i.bank_net) if i.bank_net else None,
+        "other_financial_net": int(i.other_financial_net) if i.other_financial_net else None,
+        "other_corp_net": int(i.other_corp_net) if i.other_corp_net else None,
+        "other_foreign_net": int(i.other_foreign_net) if i.other_foreign_net else None,
+        "total_net": int(i.total_net) if i.total_net else None,
     }
 
 
@@ -639,11 +724,13 @@ def _whale_to_dict(w: AnalysisWhaleSnapshot) -> dict[str, Any]:
         "institution_net_20d": int(w.institution_net_20d) if w.institution_net_20d else None,
         "foreign_net_20d": int(w.foreign_net_20d) if w.foreign_net_20d else None,
         "pension_net_20d": int(w.pension_net_20d) if w.pension_net_20d else None,
-        "institution_consistency": float(w.institution_consistency)
-        if w.institution_consistency
-        else None,
+        "private_equity_net_20d": int(w.private_equity_net_20d) if w.private_equity_net_20d else None,
+        "other_corp_net_20d": int(w.other_corp_net_20d) if w.other_corp_net_20d else None,
+        "institution_consistency": float(w.institution_consistency) if w.institution_consistency else None,
         "foreign_consistency": float(w.foreign_consistency) if w.foreign_consistency else None,
         "pension_consistency": float(w.pension_consistency) if w.pension_consistency else None,
+        "private_equity_consistency": float(w.private_equity_consistency) if w.private_equity_consistency else None,
+        "other_corp_consistency": float(w.other_corp_consistency) if w.other_corp_consistency else None,
         "signal": w.signal,
     }
 
@@ -715,6 +802,29 @@ def _risk_to_dict(r: AnalysisRiskSnapshot) -> dict[str, Any]:
     }
 
 
+def _simulation_to_dict(s: AnalysisSimulationSnapshot) -> dict[str, Any]:
+    horizons = s.horizons or {}
+    horizon_6m = horizons.get("126", {}) or {}
+    horizon_3m = horizons.get("63", {}) or {}
+    expected_return_pct_6m = horizon_6m.get("expected_return_pct")
+    upside_prob_3m = horizon_3m.get("upside_prob")
+    return {
+        "ticker": s.ticker,
+        "trade_date": s.trade_date.isoformat(),
+        "simulation_score": float(s.simulation_score) if s.simulation_score is not None else None,
+        "simulation_grade": s.simulation_grade,
+        "base_price": int(s.base_price) if s.base_price else None,
+        "mu": float(s.mu) if s.mu is not None else None,
+        "sigma": float(s.sigma) if s.sigma is not None else None,
+        "num_simulations": s.num_simulations,
+        "input_days_used": s.input_days_used,
+        "horizons": s.horizons,
+        "target_probs": s.target_probs,
+        "expected_return_pct_6m": float(expected_return_pct_6m) if expected_return_pct_6m is not None else None,
+        "upside_prob_3m": float(upside_prob_3m) if upside_prob_3m is not None else None,
+    }
+
+
 def _composite_to_dict(c: AnalysisCompositeSnapshot) -> dict[str, Any]:
     return {
         "ticker": c.ticker,
@@ -723,6 +833,7 @@ def _composite_to_dict(c: AnalysisCompositeSnapshot) -> dict[str, Any]:
         "value_score": float(c.value_score) if c.value_score is not None else None,
         "flow_score": float(c.flow_score) if c.flow_score is not None else None,
         "momentum_score": float(c.momentum_score) if c.momentum_score is not None else None,
+        "forecast_score": float(c.forecast_score) if c.forecast_score is not None else None,
         "confidence": float(c.confidence) if c.confidence is not None else None,
         "axes_available": c.axes_available,
         "confluence_tier": c.confluence_tier,
@@ -735,3 +846,108 @@ def _composite_to_dict(c: AnalysisCompositeSnapshot) -> dict[str, Any]:
         "score_label": c.score_label,
         "score_color": c.score_color,
     }
+
+
+async def get_sector_flow_overview(
+    session: AsyncSession, as_of_date: date | None = None
+) -> list[dict[str, Any]]:
+    """Get sector flow overview grouped by sector."""
+    try:
+        if as_of_date is None:
+            as_of_date = await get_latest_analysis_date(session)
+            if as_of_date is None:
+                return []
+        query = (
+            select(AnalysisSectorFlowSnapshot)
+            .where(AnalysisSectorFlowSnapshot.trade_date == as_of_date)
+            .order_by(AnalysisSectorFlowSnapshot.sector)
+        )
+        result = await session.execute(query)
+        rows = result.scalars().all()
+
+        # Group by sector
+        sector_data: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            if row.sector not in sector_data:
+                sector_data[row.sector] = {"sector": row.sector, "flows": {}, "stock_count": row.stock_count or 0}
+            sector_data[row.sector]["flows"][row.investor_type] = {
+                "net_purchase": int(row.net_purchase) if row.net_purchase else None,
+                "intensity": float(row.intensity) if row.intensity is not None else None,
+                "consistency": float(row.consistency) if row.consistency is not None else None,
+                "signal": row.signal,
+                "trend_5d": int(row.trend_5d) if row.trend_5d else None,
+                "trend_20d": int(row.trend_20d) if row.trend_20d else None,
+            }
+
+        # Compute dominant_signal: the signal that appears most among flows for each sector
+        for sector_entry in sector_data.values():
+            signal_counts: dict[str, int] = {}
+            for flow in sector_entry["flows"].values():
+                sig = flow.get("signal")
+                if sig:
+                    signal_counts[sig] = signal_counts.get(sig, 0) + 1
+            sector_entry["dominant_signal"] = max(signal_counts, key=signal_counts.__getitem__) if signal_counts else None
+
+        return list(sector_data.values())
+    except Exception:
+        await session.rollback()
+        logger.warning("Failed to get sector flow overview")
+        return []
+
+
+async def get_sector_flow_heatmap(
+    session: AsyncSession, as_of_date: date | None = None, metric: str = "intensity"
+) -> dict[str, Any]:
+    """Get heatmap data for sector flow visualization."""
+    try:
+        if as_of_date is None:
+            as_of_date = await get_latest_analysis_date(session)
+            if as_of_date is None:
+                return {"sectors": [], "investor_types": [], "values": [], "signals": []}
+        query = (
+            select(AnalysisSectorFlowSnapshot)
+            .where(AnalysisSectorFlowSnapshot.trade_date == as_of_date)
+            .order_by(AnalysisSectorFlowSnapshot.sector)
+        )
+        result = await session.execute(query)
+        rows = result.scalars().all()
+
+        sectors_set: dict[str, int] = {}
+        types_set: dict[str, int] = {}
+        data_map: dict[tuple[str, str], tuple[float | None, str | None]] = {}
+
+        for row in rows:
+            if row.sector not in sectors_set:
+                sectors_set[row.sector] = len(sectors_set)
+            if row.investor_type not in types_set:
+                types_set[row.investor_type] = len(types_set)
+
+            val = None
+            if metric == "intensity":
+                val = float(row.intensity) if row.intensity is not None else None
+            elif metric == "consistency":
+                val = float(row.consistency) if row.consistency is not None else None
+            elif metric == "net_purchase":
+                val = float(row.net_purchase) if row.net_purchase is not None else None
+
+            data_map[(row.sector, row.investor_type)] = (val, row.signal)
+
+        sectors = list(sectors_set.keys())
+        investor_types = list(types_set.keys())
+        values = []
+        signals = []
+        for sector in sectors:
+            row_vals = []
+            row_sigs = []
+            for inv_type in investor_types:
+                v, s = data_map.get((sector, inv_type), (None, None))
+                row_vals.append(v)
+                row_sigs.append(s)
+            values.append(row_vals)
+            signals.append(row_sigs)
+
+        return {"sectors": sectors, "investor_types": investor_types, "matrix": values, "signals": signals}
+    except Exception:
+        await session.rollback()
+        logger.warning("Failed to get sector flow heatmap")
+        return {"sectors": [], "investor_types": [], "matrix": [], "signals": []}

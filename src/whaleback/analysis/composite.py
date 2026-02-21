@@ -1,9 +1,10 @@
 """Whaleback Composite Score (WCS) - Multi-factor scoring and signal synthesis.
 
-Combines three independent analysis axes into a single actionable score:
+Combines four independent analysis axes into a single actionable score:
   - Value (가치): F-Score + RIM safety margin
-  - Flow (수급): Whale score (institutional accumulation)
+  - Flow (수급): Whale score (institutional accumulation) + sector flow bonus
   - Momentum (모멘텀): RS percentile + sector rotation
+  - Forecast (전망): Monte Carlo simulation score
 
 The WCS provides:
   1. Composite score (0-100) with configurable weights
@@ -23,9 +24,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "w_value": 0.35,
-    "w_flow": 0.35,
-    "w_momentum": 0.30,
+    "w_value": 0.30,
+    "w_flow": 0.30,
+    "w_momentum": 0.20,
+    "w_forecast": 0.20,
 }
 
 BUY_SIGNALS = {"strong_buy", "buy"}
@@ -33,35 +35,39 @@ SELL_SIGNALS = {"strong_sell", "sell"}
 
 INVESTOR_PROFILES: dict[str, dict[str, Any]] = {
     "value": {
-        "w_value": 0.55,
-        "w_flow": 0.25,
-        "w_momentum": 0.20,
+        "w_value": 0.45,
+        "w_flow": 0.20,
+        "w_momentum": 0.15,
+        "w_forecast": 0.20,
         "label": "가치 투자",
         "description": "저평가 우량주 발굴",
         "min_filters": {"fscore": 6, "safety_margin": 10},
     },
     "growth": {
-        "w_value": 0.30,
-        "w_flow": 0.40,
-        "w_momentum": 0.30,
+        "w_value": 0.20,
+        "w_flow": 0.35,
+        "w_momentum": 0.25,
+        "w_forecast": 0.20,
         "label": "성장 투자",
         "description": "기관 수급과 성장성 중시",
         "min_filters": {"fscore": 5, "whale_score": 50},
     },
     "momentum": {
         "w_value": 0.15,
-        "w_flow": 0.35,
-        "w_momentum": 0.50,
+        "w_flow": 0.25,
+        "w_momentum": 0.35,
+        "w_forecast": 0.25,
         "label": "모멘텀 투자",
         "description": "상대강도와 추세 추종",
         "min_filters": {"rs_percentile": 70},
     },
     "balanced": {
-        "w_value": 0.35,
-        "w_flow": 0.35,
-        "w_momentum": 0.30,
+        "w_value": 0.30,
+        "w_flow": 0.30,
+        "w_momentum": 0.20,
+        "w_forecast": 0.20,
         "label": "균형 투자",
-        "description": "가치·수급·모멘텀 균형",
+        "description": "가치·수급·모멘텀·전망 균형",
         "min_filters": {},
     },
 }
@@ -159,28 +165,33 @@ def compute_composite_score(
     quant_data: dict[str, Any] | None,
     whale_data: dict[str, Any] | None,
     trend_data: dict[str, Any] | None,
+    simulation_data: dict[str, Any] | None = None,
+    sector_flow_bonus: float = 0.0,
     weights: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Compute the Whaleback Composite Score (WCS).
 
-    Combines three axes with configurable weights:
+    Combines four axes with configurable weights:
       value_score    = 0.55 * norm_fscore + 0.45 * norm_safety_margin
                        (penalized by data_completeness if < 1.0)
-      flow_score     = whale_score (already 0-100)
+      flow_score     = whale_score (already 0-100) + sector_flow_bonus
       momentum_score = clamp(rs_percentile + quadrant_bonus, 0, 100)
+      forecast_score = simulation_score (already 0-100)
 
-    When fewer than 3 axes are available, weights are redistributed
+    When fewer than 4 axes are available, weights are redistributed
     proportionally among the available axes.
 
     Args:
         quant_data: {fscore, safety_margin, data_completeness} or None.
         whale_data: {whale_score, signal} or None.
         trend_data: {rs_percentile, sector_quadrant} or None.
-        weights: {w_value, w_flow, w_momentum} summing to 1.0, or None for defaults.
+        simulation_data: {simulation_score, ...} or None.
+        sector_flow_bonus: Bonus points (0-15) from sector flow analysis.
+        weights: {w_value, w_flow, w_momentum, w_forecast} summing to 1.0, or None for defaults.
 
     Returns:
         {composite_score, value_score, flow_score, momentum_score,
-         weights_used, confidence, axes_available}
+         forecast_score, weights_used, confidence, axes_available}
     """
     w = dict(weights) if weights else dict(DEFAULT_WEIGHTS)
 
@@ -206,6 +217,10 @@ def compute_composite_score(
             has_flow = True
             flow_score = round(float(ws), 2)
 
+    # Apply sector flow bonus to flow score
+    if has_flow and flow_score is not None and sector_flow_bonus != 0.0:
+        flow_score = round(max(0.0, min(flow_score + sector_flow_bonus, 100.0)), 2)
+
     # --- Sub-score: Momentum ---
     momentum_score: float | None = None
     has_momentum = False
@@ -217,11 +232,21 @@ def compute_composite_score(
             raw_m = rs + _quadrant_bonus(quadrant)
             momentum_score = round(max(0.0, min(raw_m, 100.0)), 2)
 
+    # --- Sub-score: Forecast ---
+    forecast_score: float | None = None
+    has_forecast = False
+    if simulation_data is not None:
+        sim_score = simulation_data.get("simulation_score")
+        if sim_score is not None:
+            has_forecast = True
+            forecast_score = round(float(sim_score), 2)
+
     # --- Weight redistribution ---
     axes = {
         "w_value": (has_value, value_score),
         "w_flow": (has_flow, flow_score),
         "w_momentum": (has_momentum, momentum_score),
+        "w_forecast": (has_forecast, forecast_score),
     }
     axes_available = sum(1 for avail, _ in axes.values() if avail)
 
@@ -231,7 +256,8 @@ def compute_composite_score(
             "value_score": None,
             "flow_score": None,
             "momentum_score": None,
-            "weights_used": {"w_value": 0.0, "w_flow": 0.0, "w_momentum": 0.0},
+            "forecast_score": None,
+            "weights_used": {"w_value": 0.0, "w_flow": 0.0, "w_momentum": 0.0, "w_forecast": 0.0},
             "confidence": 0.0,
             "axes_available": 0,
         }
@@ -253,14 +279,17 @@ def compute_composite_score(
         composite += weights_used["w_flow"] * flow_score
     if has_momentum and momentum_score is not None:
         composite += weights_used["w_momentum"] * momentum_score
+    if has_forecast and forecast_score is not None:
+        composite += weights_used["w_forecast"] * forecast_score
 
     return {
         "composite_score": round(composite, 2),
         "value_score": value_score,
         "flow_score": flow_score,
         "momentum_score": momentum_score,
+        "forecast_score": forecast_score,
         "weights_used": weights_used,
-        "confidence": round(axes_available / 3, 2),
+        "confidence": round(axes_available / 4, 2),
         "axes_available": axes_available,
     }
 
@@ -274,31 +303,35 @@ def detect_confluence(
     value_score: float | None,
     flow_score: float | None,
     momentum_score: float | None,
+    forecast_score: float | None = None,
 ) -> dict[str, Any]:
-    """Detect signal confluence and divergence across the three axes.
+    """Detect signal confluence and divergence across the four axes.
 
     Confluence tiers (1-5):
-      5 - All three signals in the same *strong* direction
-      4 - All three signals in the same direction (buy+ or sell+)
-      3 - Two strong signals + one neutral
+      5 - All known signals in the same *strong* direction
+      4 - All known signals in the same direction (buy+ or sell+)
+      3 - Two strong signals + rest neutral
       2 - Exactly one strong signal only
       1 - Conflicting or no strong signals
 
     Divergence types:
-      value_momentum_divergence  - 가치-모멘텀 괴리 (바닥 가능성)
-      momentum_value_divergence  - 모멘텀-가치 괴리 (과열 주의)
-      flow_value_divergence      - 수급-가치 괴리 (테마주 가능성)
+      value_momentum_divergence    - 가치-모멘텀 괴리 (바닥 가능성)
+      momentum_value_divergence    - 모멘텀-가치 괴리 (과열 주의)
+      flow_value_divergence        - 수급-가치 괴리 (테마주 가능성)
+      forecast_value_divergence    - 전망-가치 괴리 (시뮬레이션 긍정적이나 가치 부족)
+      forecast_momentum_divergence - 전망-모멘텀 괴리 (단기 강세이나 장기 불확실)
 
     Returns:
         {confluence_tier, confluence_pattern, value_signal, flow_signal,
-         momentum_signal, divergence_type, divergence_severity,
+         momentum_signal, forecast_signal, divergence_type, divergence_severity,
          divergence_label, action_label, action_description}
     """
     v_sig = _classify_signal(value_score)
     f_sig = _classify_signal(flow_score)
     m_sig = _classify_signal(momentum_score)
+    fc_sig = _classify_signal(forecast_score)
 
-    known_signals = [s for s in (v_sig, f_sig, m_sig) if s != "unknown"]
+    known_signals = [s for s in (v_sig, f_sig, m_sig, fc_sig) if s != "unknown"]
     num_known = len(known_signals)
 
     buy_count = sum(1 for s in known_signals if s in BUY_SIGNALS)
@@ -358,6 +391,14 @@ def detect_confluence(
         div_type = "flow_value_divergence"
         div_severity = "medium"
         div_label = "수급-가치 괴리 (테마주 가능성)"
+    elif fc_sig in BUY_SIGNALS and v_sig in SELL_SIGNALS:
+        div_type = "forecast_value_divergence"
+        div_severity = "low"
+        div_label = "전망-가치 괴리 (시뮬레이션 긍정적이나 가치 부족)"
+    elif fc_sig in SELL_SIGNALS and m_sig in BUY_SIGNALS:
+        div_type = "forecast_momentum_divergence"
+        div_severity = "medium"
+        div_label = "전망-모멘텀 괴리 (단기 강세이나 장기 불확실)"
 
     # --- Action label ---
     action_label, action_desc = _action_for_tier(tier, direction)
@@ -368,6 +409,7 @@ def detect_confluence(
         "value_signal": v_sig,
         "flow_signal": f_sig,
         "momentum_signal": m_sig,
+        "forecast_signal": fc_sig,
         "divergence_type": div_type,
         "divergence_severity": div_severity,
         "divergence_label": div_label,
@@ -381,11 +423,13 @@ def _describe_pattern(tier: int, direction: str, num_known: int) -> str:
     if num_known == 0:
         return "no_data"
     if tier == 5:
-        return f"triple_strong_{direction}"
+        prefix = "quad" if num_known >= 4 else "triple"
+        return f"{prefix}_strong_{direction}"
     if tier == 4:
-        return f"triple_{direction}"
+        prefix = "quad" if num_known >= 4 else "triple"
+        return f"{prefix}_{direction}"
     if tier == 3:
-        return f"double_strong_{direction}"
+        return f"multi_strong_{direction}"
     if tier == 2:
         return f"single_strong_{direction}"
     return "mixed"
@@ -395,12 +439,12 @@ def _action_for_tier(tier: int, direction: str) -> tuple[str, str]:
     """Map confluence tier + direction to Korean action label and description."""
     if tier == 5:
         if direction == "buy":
-            return "적극 매수", "가치·수급·모멘텀 모두 강한 매수 신호입니다"
-        return "적극 매도", "가치·수급·모멘텀 모두 강한 매도 신호입니다"
+            return "적극 매수", "가치·수급·모멘텀·전망 모두 강한 매수 신호입니다"
+        return "적극 매도", "가치·수급·모멘텀·전망 모두 강한 매도 신호입니다"
     if tier == 4:
         if direction == "buy":
-            return "매수 추천", "세 가지 축이 모두 매수 방향을 가리킵니다"
-        return "매도 추천", "세 가지 축이 모두 매도 방향을 가리킵니다"
+            return "매수 추천", "다수 축이 매수 방향을 가리킵니다"
+        return "매도 추천", "다수 축이 매도 방향을 가리킵니다"
     if tier == 3:
         if direction == "buy":
             return "매수 검토", "두 가지 이상의 강한 매수 신호가 있습니다"
@@ -439,7 +483,7 @@ def classify_composite_score(score: float | None) -> dict[str, str]:
             "tier": "excellent",
             "label": "최우량",
             "color": "emerald",
-            "description": "가치·수급·모멘텀이 모두 우수합니다",
+            "description": "가치·수급·모멘텀·전망이 모두 우수합니다",
         }
     if score >= 65:
         return {
@@ -486,7 +530,9 @@ def compute_profile_score(
     quant_data: dict[str, Any] | None,
     whale_data: dict[str, Any] | None,
     trend_data: dict[str, Any] | None,
-    profile: str,
+    simulation_data: dict[str, Any] | None = None,
+    sector_flow_bonus: float = 0.0,
+    profile: str = "balanced",
 ) -> dict[str, Any]:
     """Compute composite score using an investor-profile's weight preset.
 
@@ -500,6 +546,8 @@ def compute_profile_score(
         quant_data: Same as compute_composite_score.
         whale_data: Same as compute_composite_score.
         trend_data: Same as compute_composite_score.
+        simulation_data: {simulation_score, ...} or None.
+        sector_flow_bonus: Bonus points (0-15) from sector flow analysis.
         profile: One of "value", "growth", "momentum", "balanced".
 
     Returns:
@@ -514,9 +562,12 @@ def compute_profile_score(
         "w_value": prof["w_value"],
         "w_flow": prof["w_flow"],
         "w_momentum": prof["w_momentum"],
+        "w_forecast": prof["w_forecast"],
     }
 
-    result = compute_composite_score(quant_data, whale_data, trend_data, profile_weights)
+    result = compute_composite_score(
+        quant_data, whale_data, trend_data, simulation_data, sector_flow_bonus, profile_weights
+    )
 
     # --- Eligibility check ---
     min_filters: dict[str, float] = prof.get("min_filters", {})
@@ -524,7 +575,7 @@ def compute_profile_score(
     eligible = True
 
     for filt, threshold in min_filters.items():
-        actual = _extract_filter_value(filt, quant_data, whale_data, trend_data)
+        actual = _extract_filter_value(filt, quant_data, whale_data, trend_data, simulation_data)
         if actual is None:
             filters_met[filt] = False
             eligible = False
@@ -548,6 +599,7 @@ def _extract_filter_value(
     quant_data: dict[str, Any] | None,
     whale_data: dict[str, Any] | None,
     trend_data: dict[str, Any] | None,
+    simulation_data: dict[str, Any] | None = None,
 ) -> float | None:
     """Extract a raw metric value for eligibility filtering."""
     if filt == "fscore" and quant_data is not None:
@@ -558,4 +610,6 @@ def _extract_filter_value(
         return whale_data.get("whale_score")
     if filt == "rs_percentile" and trend_data is not None:
         return trend_data.get("rs_percentile")
+    if filt == "simulation_score" and simulation_data is not None:
+        return simulation_data.get("simulation_score")
     return None

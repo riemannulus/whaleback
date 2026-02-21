@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     equity_risk_premium: float = 0.065  # Korea ERP ~6.5%
     whale_lookback_days: int = 20
 
+    # Monte Carlo simulation
+    simulation_num_paths: int = 10000
+    simulation_min_history_days: int = 60
+    simulation_max_sigma: float = 1.50
+
     # Analysis scheduler
     analysis_schedule_hour: int = 19
     analysis_schedule_minute: int = 0

@@ -39,6 +39,8 @@ from whaleback.analysis.composite import (
     detect_confluence,
     classify_composite_score,
 )
+from whaleback.analysis.simulation import run_monte_carlo
+from whaleback.analysis.sector_flow import compute_sector_flows
 from whaleback.config import Settings
 from whaleback.db.engine import get_session
 from whaleback.db.models import (
@@ -55,6 +57,8 @@ from whaleback.db.models import (
     AnalysisTechnicalSnapshot,
     AnalysisRiskSnapshot,
     AnalysisCompositeSnapshot,
+    AnalysisSimulationSnapshot,
+    AnalysisSectorFlowSnapshot,
 )
 
 logger = logging.getLogger(__name__)
@@ -103,6 +107,10 @@ class AnalysisComputer:
             technical_rows: list[dict[str, Any]] = []
             risk_rows: list[dict[str, Any]] = []
             composite_rows: list[dict[str, Any]] = []
+            simulation_rows: list[dict[str, Any]] = []
+            # Accumulated for sector flow: {ticker: [investor rows]}
+            investor_data_acc: dict[str, list[dict[str, Any]]] = {}
+            trading_values_acc: dict[str, float] = {}
 
             for i, (ticker, stock_name) in enumerate(tickers.items()):
                 if (i + 1) % 200 == 0:
@@ -161,6 +169,20 @@ class AnalysisComputer:
                     if risk_result:
                         risk_rows.append({"trade_date": target_date, "ticker": ticker, **risk_result})
 
+                    # --- Simulation ---
+                    sim_result = self._compute_simulation(session, ticker, target_date)
+                    if sim_result:
+                        simulation_rows.append({"trade_date": target_date, "ticker": ticker, **sim_result})
+
+                    # --- Accumulate investor data for sector flow ---
+                    inv_rows, avg_tv = self._load_investor_data_for_sector(
+                        session, ticker, target_date
+                    )
+                    if inv_rows:
+                        investor_data_acc[ticker] = inv_rows
+                    if avg_tv is not None:
+                        trading_values_acc[ticker] = avg_tv
+
                 except Exception as e:
                     logger.warning(f"Analysis failed for {ticker}: {e}")
                     continue
@@ -176,25 +198,57 @@ class AnalysisComputer:
                     rs = row.get("rs_vs_kospi_20d")
                     row["rs_percentile"] = compute_rs_percentile(rs, all_rs_20d)
 
+            # --- Sector Flow Analysis (cross-ticker, aggregated by sector) ---
+            # Computed before composite scoring so sector_flow_bonus can be passed in
+            sector_flow_rows = []
+            try:
+                sf_results = compute_sector_flows(
+                    sector_map=sector_map,
+                    investor_data=investor_data_acc,
+                    trading_values=trading_values_acc,
+                    lookback_days=self.settings.whale_lookback_days,
+                )
+                for sf in sf_results:
+                    sector_flow_rows.append({"trade_date": target_date, **sf})
+            except Exception as e:
+                logger.warning(f"Sector flow computation failed: {e}")
+
             # Build lookup dicts for composite scoring
             quant_lookup = {r["ticker"]: r for r in quant_rows}
             whale_lookup = {r["ticker"]: r for r in whale_rows}
             trend_lookup = {r["ticker"]: r for r in trend_rows}
+            simulation_lookup = {r["ticker"]: r for r in simulation_rows}
+
+            # Build sector flow bonus lookup: ticker -> bonus points
+            sector_flow_bonus_lookup: dict[str, float] = {}
+            for sf_row in sector_flow_rows:
+                sector = sf_row.get("sector")
+                signal = sf_row.get("signal")
+                if signal in ("strong_accumulation", "accumulation"):
+                    # Find tickers in this sector
+                    for t, s in sector_map.items():
+                        if s == sector:
+                            current_bonus = sector_flow_bonus_lookup.get(t, 0.0)
+                            add = 15.0 if signal == "strong_accumulation" else 5.0
+                            sector_flow_bonus_lookup[t] = min(current_bonus + add, 15.0)
 
             for ticker in tickers:
                 try:
                     quant_d = quant_lookup.get(ticker)
                     whale_d = whale_lookup.get(ticker)
                     trend_d = trend_lookup.get(ticker)
+                    sim_d = simulation_lookup.get(ticker)
+                    sf_bonus = sector_flow_bonus_lookup.get(ticker, 0.0)
 
                     if not any([quant_d, whale_d, trend_d]):
                         continue
 
-                    score_result = compute_composite_score(quant_d, whale_d, trend_d)
+                    score_result = compute_composite_score(quant_d, whale_d, trend_d, sim_d, sf_bonus)
                     confluence = detect_confluence(
                         score_result.get("value_score"),
                         score_result.get("flow_score"),
                         score_result.get("momentum_score"),
+                        score_result.get("forecast_score"),
                     )
                     classification = classify_composite_score(score_result.get("composite_score"))
 
@@ -205,6 +259,7 @@ class AnalysisComputer:
                         "value_score": score_result.get("value_score"),
                         "flow_score": score_result.get("flow_score"),
                         "momentum_score": score_result.get("momentum_score"),
+                        "forecast_score": score_result.get("forecast_score"),
                         "confidence": score_result.get("confidence"),
                         "axes_available": score_result.get("axes_available"),
                         "confluence_tier": confluence.get("confluence_tier"),
@@ -229,11 +284,14 @@ class AnalysisComputer:
             tech_count = self._persist_snapshots(session, AnalysisTechnicalSnapshot, technical_rows)
             risk_count = self._persist_snapshots(session, AnalysisRiskSnapshot, risk_rows)
             composite_count = self._persist_snapshots(session, AnalysisCompositeSnapshot, composite_rows)
+            sim_count = self._persist_snapshots(session, AnalysisSimulationSnapshot, simulation_rows)
+            sector_flow_count = self._persist_sector_flow_snapshots(session, sector_flow_rows)
 
             logger.info(
                 f"Analysis complete: quant={quant_count}, whale={whale_count}, "
                 f"trend={trend_count}, flow={flow_count}, technical={tech_count}, "
-                f"risk={risk_count}, composite={composite_count}"
+                f"risk={risk_count}, composite={composite_count}, simulation={sim_count}, "
+                f"sector_flow={sector_flow_count}"
             )
             return {
                 "quant": quant_count,
@@ -243,6 +301,8 @@ class AnalysisComputer:
                 "technical": tech_count,
                 "risk": risk_count,
                 "composite": composite_count,
+                "simulation": sim_count,
+                "sector_flow": sector_flow_count,
             }
 
     # ------------------------------------------------------------------
@@ -463,6 +523,8 @@ class AnalysisComputer:
                 "institution_net": int(r.institution_net) if r.institution_net else None,
                 "foreign_net": int(r.foreign_net) if r.foreign_net else None,
                 "pension_net": int(r.pension_net) if r.pension_net else None,
+                "private_equity_net": int(r.private_equity_net) if r.private_equity_net else None,
+                "other_corp_net": int(r.other_corp_net) if r.other_corp_net else None,
             }
             for r in result.scalars().all()
         ]
@@ -485,20 +547,16 @@ class AnalysisComputer:
 
         return {
             "whale_score": whale_result["whale_score"],
-            "institution_net_20d": whale_result["components"]
-            .get("institution_net", {})
-            .get("net_total"),
+            "institution_net_20d": whale_result["components"].get("institution_net", {}).get("net_total"),
             "foreign_net_20d": whale_result["components"].get("foreign_net", {}).get("net_total"),
             "pension_net_20d": whale_result["components"].get("pension_net", {}).get("net_total"),
-            "institution_consistency": whale_result["components"]
-            .get("institution_net", {})
-            .get("consistency"),
-            "foreign_consistency": whale_result["components"]
-            .get("foreign_net", {})
-            .get("consistency"),
-            "pension_consistency": whale_result["components"]
-            .get("pension_net", {})
-            .get("consistency"),
+            "private_equity_net_20d": whale_result["components"].get("private_equity_net", {}).get("net_total"),
+            "other_corp_net_20d": whale_result["components"].get("other_corp_net", {}).get("net_total"),
+            "institution_consistency": whale_result["components"].get("institution_net", {}).get("consistency"),
+            "foreign_consistency": whale_result["components"].get("foreign_net", {}).get("consistency"),
+            "pension_consistency": whale_result["components"].get("pension_net", {}).get("consistency"),
+            "private_equity_consistency": whale_result["components"].get("private_equity_net", {}).get("consistency"),
+            "other_corp_consistency": whale_result["components"].get("other_corp_net", {}).get("consistency"),
             "signal": whale_result["signal"],
         }
 
@@ -720,6 +778,46 @@ class AnalysisComputer:
             "recovery_label": drawdown.get("recovery_label"),
         }
 
+    def _compute_simulation(
+        self, session: Session, ticker: str, target_date: date
+    ) -> dict[str, Any] | None:
+        """Run Monte Carlo simulation for a single ticker."""
+        start_date = target_date - timedelta(days=400)
+        result = session.execute(
+            select(DailyOHLCV.close)
+            .where(
+                and_(
+                    DailyOHLCV.ticker == ticker,
+                    DailyOHLCV.trade_date.between(start_date, target_date),
+                )
+            )
+            .order_by(DailyOHLCV.trade_date)
+        )
+        prices = [float(r.close) for r in result.all()]
+
+        if len(prices) < self.settings.simulation_min_history_days:
+            return None
+
+        sim_result = run_monte_carlo(
+            prices,
+            num_simulations=self.settings.simulation_num_paths,
+            ticker=ticker,
+        )
+        if sim_result is None:
+            return None
+
+        return {
+            "simulation_score": sim_result["simulation_score"],
+            "simulation_grade": sim_result["simulation_grade"],
+            "base_price": sim_result["base_price"],
+            "mu": sim_result["mu"],
+            "sigma": sim_result["sigma"],
+            "num_simulations": sim_result["num_simulations"],
+            "input_days_used": sim_result["input_days_used"],
+            "horizons": sim_result["horizons"],
+            "target_probs": sim_result["target_probs"],
+        }
+
     # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------
@@ -749,6 +847,76 @@ class AnalysisComputer:
             stmt = pg_insert(model).values(clean_batch)
             stmt = stmt.on_conflict_do_update(
                 index_elements=["trade_date", "ticker"],
+                set_={col: getattr(stmt.excluded, col) for col in update_cols},
+            )
+            session.execute(stmt)
+            total += len(batch)
+
+        return total
+
+    def _load_investor_data_for_sector(
+        self, session: Session, ticker: str, target_date: date
+    ) -> tuple[list[dict[str, Any]], float | None]:
+        """Load investor trading data and avg trading value for sector flow aggregation."""
+        lookback = self.settings.whale_lookback_days
+        start_date = target_date - timedelta(days=lookback * 2)
+
+        result = session.execute(
+            select(InvestorTrading)
+            .where(
+                and_(
+                    InvestorTrading.ticker == ticker,
+                    InvestorTrading.trade_date.between(start_date, target_date),
+                )
+            )
+            .order_by(InvestorTrading.trade_date)
+        )
+        rows = [
+            {
+                "trade_date": r.trade_date,
+                "institution_net": int(r.institution_net) if r.institution_net else None,
+                "foreign_net": int(r.foreign_net) if r.foreign_net else None,
+                "pension_net": int(r.pension_net) if r.pension_net else None,
+                "private_equity_net": int(r.private_equity_net) if r.private_equity_net else None,
+                "other_corp_net": int(r.other_corp_net) if r.other_corp_net else None,
+            }
+            for r in result.scalars().all()
+        ]
+
+        avg_val_result = session.execute(
+            select(func.avg(DailyOHLCV.trading_value)).where(
+                and_(
+                    DailyOHLCV.ticker == ticker,
+                    DailyOHLCV.trade_date.between(start_date, target_date),
+                )
+            )
+        ).scalar_one_or_none()
+        avg_trading_value = float(avg_val_result) if avg_val_result else None
+
+        return rows, avg_trading_value
+
+    def _persist_sector_flow_snapshots(self, session: Session, rows: list[dict[str, Any]]) -> int:
+        """Batch upsert sector flow snapshot rows (triple PK: trade_date, sector, investor_type)."""
+        if not rows:
+            return 0
+
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        BATCH_SIZE = 1000
+        total = 0
+        model = AnalysisSectorFlowSnapshot
+        model_columns = {c.key for c in model.__table__.columns}
+
+        for i in range(0, len(rows), BATCH_SIZE):
+            batch = rows[i : i + BATCH_SIZE]
+            clean_batch = [{k: v for k, v in row.items() if k in model_columns} for row in batch]
+            update_cols = [
+                k for k in clean_batch[0].keys()
+                if k not in ("trade_date", "sector", "investor_type", "computed_at")
+            ]
+            stmt = pg_insert(model).values(clean_batch)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["trade_date", "sector", "investor_type"],
                 set_={col: getattr(stmt.excluded, col) for col in update_cols},
             )
             session.execute(stmt)
