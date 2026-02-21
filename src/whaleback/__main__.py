@@ -224,6 +224,8 @@ def init_db():
         "analysis_technical_snapshot": "analysis_technical_snapshot",
         "analysis_risk_snapshot": "analysis_risk_snapshot",
         "analysis_composite_snapshot": "analysis_composite_snapshot",
+        "analysis_simulation_snapshot": "analysis_simulation_snapshot",
+        "analysis_sector_flow_snapshot": "analysis_sector_flow_snapshot",
     }
 
     with engine.begin() as conn:
@@ -282,6 +284,10 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_composite_score_{year} ON analysis_composite_snapshot_{year} (trade_date, composite_score DESC)",
         "CREATE INDEX IF NOT EXISTS idx_composite_tier_{year} ON analysis_composite_snapshot_{year} (trade_date, confluence_tier DESC)",
         "CREATE INDEX IF NOT EXISTS idx_composite_grade_{year} ON analysis_composite_snapshot_{year} (trade_date, score_tier)",
+        "CREATE INDEX IF NOT EXISTS idx_simulation_score_{year} ON analysis_simulation_snapshot_{year} (trade_date, simulation_score DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_simulation_grade_{year} ON analysis_simulation_snapshot_{year} (trade_date, simulation_grade)",
+        "CREATE INDEX IF NOT EXISTS idx_sector_flow_signal_{year} ON analysis_sector_flow_snapshot_{year} (trade_date, signal)",
+        "CREATE INDEX IF NOT EXISTS idx_sector_flow_sector_{year} ON analysis_sector_flow_snapshot_{year} (trade_date, sector, investor_type)",
     ]
 
     with engine.begin() as conn:
