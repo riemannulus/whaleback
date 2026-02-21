@@ -224,7 +224,7 @@ class AnalysisComputer:
             for sf_row in sector_flow_rows:
                 sector = sf_row.get("sector")
                 signal = sf_row.get("signal")
-                if signal in ("strong_accumulation", "accumulation"):
+                if signal in ("strong_accumulation", "mild_accumulation"):
                     # Find tickers in this sector
                     for t, s in sector_map.items():
                         if s == sector:

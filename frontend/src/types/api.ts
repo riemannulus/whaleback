@@ -284,7 +284,7 @@ export interface SimulationHorizon {
 export interface SimulationResult {
   ticker: string;
   name: string | null;
-  trade_date: string;
+  as_of_date: string;
   simulation_score: number | null;
   simulation_grade: string | null;
   base_price: number | null;
@@ -321,6 +321,7 @@ export interface SectorFlowOverviewItem {
   sector: string;
   flows: Record<string, SectorFlowItem>;
   dominant_signal: string | null;
+  stock_count: number;
 }
 
 export interface SectorFlowHeatmapData {

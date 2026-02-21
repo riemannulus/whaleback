@@ -1,8 +1,10 @@
 "use client";
 
-import { useQuantRankings, useWhaleTop, useSectorRanking, usePipelineStatus, useSimulationRankings } from "@/lib/queries";
+import { useQuantRankings, useWhaleTop, useSectorRanking, usePipelineStatus, useSimulationRankings, useSectorFlowHeatmap } from "@/lib/queries";
 import { formatKRW, formatPercent, formatLargeNumber } from "@/lib/utils";
 import Link from "next/link";
+import ReactECharts from "echarts-for-react";
+import type { SectorFlowHeatmapData } from "@/types/api";
 
 function StatCard({ title, value, subtitle }: { title: string; value: string; subtitle?: string }) {
   return (
@@ -25,18 +27,90 @@ function SectionHeader({ title, href }: { title: string; href: string }) {
   );
 }
 
+const investorTypeLabels: Record<string, string> = {
+  institution_net: "기관",
+  foreigner_net: "외국인",
+  individual_net: "개인",
+  program_net: "프로그램",
+};
+
+function MiniHeatmapChart({ heatmap }: { heatmap: SectorFlowHeatmapData }) {
+  const { sectors, investor_types, matrix } = heatmap;
+  const data: [number, number, number][] = [];
+
+  for (let y = 0; y < sectors.length; y++) {
+    for (let x = 0; x < investor_types.length; x++) {
+      data.push([x, y, matrix[y]?.[x] ?? 0]);
+    }
+  }
+
+  const values = data.map(([, , v]) => v);
+  const minVal = Math.min(...values, 0);
+  const maxVal = Math.max(...values, 0);
+  const yLabels = investor_types.map((t) => investorTypeLabels[t] || t);
+
+  const option = {
+    tooltip: {
+      position: "top" as const,
+      formatter: (params: any) => {
+        const sector = sectors[params.data[1]];
+        const investorLabel = yLabels[params.data[0]];
+        const val = params.data[2];
+        return `${sector}<br/>${investorLabel}: ${(val * 100).toFixed(1)}%`;
+      },
+    },
+    grid: { left: "14%", right: "4%", top: "4%", bottom: "22%" },
+    xAxis: {
+      type: "category" as const,
+      data: sectors,
+      axisLabel: { fontSize: 9, rotate: 45, interval: 0 },
+      splitArea: { show: true },
+    },
+    yAxis: {
+      type: "category" as const,
+      data: yLabels,
+      axisLabel: { fontSize: 10 },
+      splitArea: { show: true },
+    },
+    visualMap: {
+      min: minVal,
+      max: maxVal,
+      calculable: false,
+      orient: "horizontal" as const,
+      left: "center",
+      bottom: "0%",
+      itemWidth: 10,
+      itemHeight: 80,
+      inRange: { color: ["#ef4444", "#fbbf24", "#f5f5f5", "#86efac", "#10b981"] },
+      textStyle: { fontSize: 9 },
+    },
+    series: [
+      {
+        type: "heatmap" as const,
+        data,
+        label: { show: false },
+        emphasis: { itemStyle: { shadowBlur: 6, shadowColor: "rgba(0,0,0,0.3)" } },
+      },
+    ],
+  };
+
+  return <ReactECharts option={option} style={{ height: 220 }} />;
+}
+
 export default function DashboardPage() {
   const { data: quantData } = useQuantRankings({ size: 10 });
   const { data: whaleData } = useWhaleTop({ size: 10 });
   const { data: sectorData } = useSectorRanking();
   const { data: pipelineData } = usePipelineStatus();
   const { data: simulationData } = useSimulationRankings({ size: 10 });
+  const { data: heatmapData, isLoading: heatmapLoading } = useSectorFlowHeatmap();
 
   const topStocks = quantData?.data || [];
   const topWhales = whaleData?.data || [];
   const sectors = sectorData?.data || [];
   const collections = pipelineData?.data?.collections || [];
   const topSimulations = simulationData?.data || [];
+  const heatmap: SectorFlowHeatmapData | null = heatmapData?.data || null;
 
   const lastCollection = collections.length > 0
     ? collections.reduce((a: any, b: any) => (a.completed_at > b.completed_at ? a : b))
@@ -209,6 +283,20 @@ export default function DashboardPage() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Sector Flow Mini Heatmap */}
+      <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
+        <SectionHeader title="섹터 수급 히트맵" href="/analysis/sector-flow" />
+        {heatmapLoading ? (
+          <div className="h-48 bg-slate-100 animate-pulse rounded" />
+        ) : heatmap && heatmap.sectors.length > 0 ? (
+          <MiniHeatmapChart heatmap={heatmap} />
+        ) : (
+          <div className="h-48 flex items-center justify-center text-slate-400 text-sm">
+            히트맵 데이터 없음
+          </div>
+        )}
       </div>
 
       {/* Sector Overview */}

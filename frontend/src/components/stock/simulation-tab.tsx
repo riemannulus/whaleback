@@ -98,7 +98,7 @@ export function SimulationTab({ ticker }: SimulationTabProps) {
             </div>
           </div>
         </div>
-        <div className="text-xs text-slate-400 pt-3 mt-3 border-t">기준일: {sim.trade_date}</div>
+        <div className="text-xs text-slate-400 pt-3 mt-3 border-t">기준일: {sim.as_of_date}</div>
       </div>
 
       {/* Fan Chart */}
