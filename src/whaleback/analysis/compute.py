@@ -19,6 +19,26 @@ from whaleback.analysis.quant import (
 )
 from whaleback.analysis.whale import compute_whale_score
 from whaleback.analysis.trend import compute_relative_strength, compute_rs_percentile
+from whaleback.analysis.flow import (
+    compute_retail_contrarian,
+    compute_smart_dumb_divergence,
+    compute_flow_momentum_shift,
+)
+from whaleback.analysis.technical import (
+    compute_disparity,
+    compute_bollinger,
+    compute_macd,
+)
+from whaleback.analysis.risk import (
+    compute_volatility,
+    compute_beta,
+    compute_max_drawdown,
+)
+from whaleback.analysis.composite import (
+    compute_composite_score,
+    detect_confluence,
+    classify_composite_score,
+)
 from whaleback.config import Settings
 from whaleback.db.engine import get_session
 from whaleback.db.models import (
@@ -31,6 +51,10 @@ from whaleback.db.models import (
     AnalysisQuantSnapshot,
     AnalysisWhaleSnapshot,
     AnalysisTrendSnapshot,
+    AnalysisFlowSnapshot,
+    AnalysisTechnicalSnapshot,
+    AnalysisRiskSnapshot,
+    AnalysisCompositeSnapshot,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,7 +69,8 @@ class AnalysisComputer:
     def run(self, target_date: date) -> dict[str, int]:
         """Run all analysis computations for the target date.
 
-        Returns dict with counts: {quant: N, whale: N, trend: N}
+        Returns dict with counts for each analysis type:
+        {quant, whale, trend, flow, technical, risk, composite}
         """
         logger.info(f"Starting analysis computation for {target_date}")
 
@@ -55,7 +80,10 @@ class AnalysisComputer:
             logger.info(f"Found {len(tickers)} active tickers")
 
             if not tickers:
-                return {"quant": 0, "whale": 0, "trend": 0}
+                return {
+                    "quant": 0, "whale": 0, "trend": 0,
+                    "flow": 0, "technical": 0, "risk": 0, "composite": 0,
+                }
 
             # Pre-compute sector medians for F-Score
             sector_medians = self._compute_sector_medians(session, target_date)
@@ -71,6 +99,10 @@ class AnalysisComputer:
             quant_rows: list[dict[str, Any]] = []
             whale_rows: list[dict[str, Any]] = []
             trend_rows: list[dict[str, Any]] = []
+            flow_rows: list[dict[str, Any]] = []
+            technical_rows: list[dict[str, Any]] = []
+            risk_rows: list[dict[str, Any]] = []
+            composite_rows: list[dict[str, Any]] = []
 
             for i, (ticker, stock_name) in enumerate(tickers.items()):
                 if (i + 1) % 200 == 0:
@@ -114,6 +146,21 @@ class AnalysisComputer:
                             }
                         )
 
+                    # --- Flow Analysis ---
+                    flow_result = self._compute_flow(session, ticker, target_date)
+                    if flow_result:
+                        flow_rows.append({"trade_date": target_date, "ticker": ticker, **flow_result})
+
+                    # --- Technical Analysis ---
+                    technical_result = self._compute_technical(session, ticker, target_date)
+                    if technical_result:
+                        technical_rows.append({"trade_date": target_date, "ticker": ticker, **technical_result})
+
+                    # --- Risk Analysis ---
+                    risk_result = self._compute_risk(session, ticker, target_date, index_prices)
+                    if risk_result:
+                        risk_rows.append({"trade_date": target_date, "ticker": ticker, **risk_result})
+
                 except Exception as e:
                     logger.warning(f"Analysis failed for {ticker}: {e}")
                     continue
@@ -129,15 +176,74 @@ class AnalysisComputer:
                     rs = row.get("rs_vs_kospi_20d")
                     row["rs_percentile"] = compute_rs_percentile(rs, all_rs_20d)
 
+            # Build lookup dicts for composite scoring
+            quant_lookup = {r["ticker"]: r for r in quant_rows}
+            whale_lookup = {r["ticker"]: r for r in whale_rows}
+            trend_lookup = {r["ticker"]: r for r in trend_rows}
+
+            for ticker in tickers:
+                try:
+                    quant_d = quant_lookup.get(ticker)
+                    whale_d = whale_lookup.get(ticker)
+                    trend_d = trend_lookup.get(ticker)
+
+                    if not any([quant_d, whale_d, trend_d]):
+                        continue
+
+                    score_result = compute_composite_score(quant_d, whale_d, trend_d)
+                    confluence = detect_confluence(
+                        score_result.get("value_score"),
+                        score_result.get("flow_score"),
+                        score_result.get("momentum_score"),
+                    )
+                    classification = classify_composite_score(score_result.get("composite_score"))
+
+                    composite_rows.append({
+                        "trade_date": target_date,
+                        "ticker": ticker,
+                        "composite_score": score_result.get("composite_score"),
+                        "value_score": score_result.get("value_score"),
+                        "flow_score": score_result.get("flow_score"),
+                        "momentum_score": score_result.get("momentum_score"),
+                        "confidence": score_result.get("confidence"),
+                        "axes_available": score_result.get("axes_available"),
+                        "confluence_tier": confluence.get("confluence_tier"),
+                        "confluence_pattern": confluence.get("confluence_pattern"),
+                        "divergence_type": confluence.get("divergence_type"),
+                        "divergence_label": confluence.get("divergence_label"),
+                        "action_label": confluence.get("action_label"),
+                        "action_description": confluence.get("action_description"),
+                        "score_tier": classification.get("tier"),
+                        "score_label": classification.get("label"),
+                        "score_color": classification.get("color"),
+                    })
+                except Exception as e:
+                    logger.warning(f"Composite scoring failed for {ticker}: {e}")
+                    continue
+
             # Persist results
             quant_count = self._persist_snapshots(session, AnalysisQuantSnapshot, quant_rows)
             whale_count = self._persist_snapshots(session, AnalysisWhaleSnapshot, whale_rows)
             trend_count = self._persist_snapshots(session, AnalysisTrendSnapshot, trend_rows)
+            flow_count = self._persist_snapshots(session, AnalysisFlowSnapshot, flow_rows)
+            tech_count = self._persist_snapshots(session, AnalysisTechnicalSnapshot, technical_rows)
+            risk_count = self._persist_snapshots(session, AnalysisRiskSnapshot, risk_rows)
+            composite_count = self._persist_snapshots(session, AnalysisCompositeSnapshot, composite_rows)
 
             logger.info(
-                f"Analysis complete: quant={quant_count}, whale={whale_count}, trend={trend_count}"
+                f"Analysis complete: quant={quant_count}, whale={whale_count}, "
+                f"trend={trend_count}, flow={flow_count}, technical={tech_count}, "
+                f"risk={risk_count}, composite={composite_count}"
             )
-            return {"quant": quant_count, "whale": whale_count, "trend": trend_count}
+            return {
+                "quant": quant_count,
+                "whale": whale_count,
+                "trend": trend_count,
+                "flow": flow_count,
+                "technical": tech_count,
+                "risk": risk_count,
+                "composite": composite_count,
+            }
 
     # ------------------------------------------------------------------
     # Data loading helpers
@@ -452,6 +558,166 @@ class AnalysisComputer:
             "rs_vs_kospi_60d": round(rs_60d, 4) if rs_60d else None,
             "rs_percentile": None,  # Computed after all tickers processed
             "sector": sector,
+        }
+
+    def _compute_flow(
+        self, session: Session, ticker: str, target_date: date
+    ) -> dict[str, Any] | None:
+        """Compute flow analysis (retail contrarian, smart/dumb divergence, momentum shift)."""
+        lookback = 60  # Need 60 days for Z-score
+        start_date = target_date - timedelta(days=lookback * 2)
+
+        # Load investor trading data including individual_net
+        result = session.execute(
+            select(InvestorTrading)
+            .where(
+                and_(
+                    InvestorTrading.ticker == ticker,
+                    InvestorTrading.trade_date.between(start_date, target_date),
+                )
+            )
+            .order_by(InvestorTrading.trade_date)
+        )
+        investor_rows = [
+            {
+                "trade_date": r.trade_date,
+                "institution_net": int(r.institution_net) if r.institution_net else 0,
+                "foreign_net": int(r.foreign_net) if r.foreign_net else 0,
+                "pension_net": int(r.pension_net) if r.pension_net else 0,
+                "individual_net": int(r.individual_net) if r.individual_net else 0,
+            }
+            for r in result.scalars().all()
+        ]
+
+        if not investor_rows:
+            return None
+
+        # Avg daily trading value for normalization
+        avg_val_result = session.execute(
+            select(func.avg(DailyOHLCV.trading_value)).where(
+                and_(
+                    DailyOHLCV.ticker == ticker,
+                    DailyOHLCV.trade_date.between(start_date, target_date),
+                )
+            )
+        ).scalar_one_or_none()
+        avg_trading_value = float(avg_val_result) if avg_val_result else None
+
+        retail = compute_retail_contrarian(investor_rows, avg_trading_value)
+        divergence = compute_smart_dumb_divergence(investor_rows, avg_trading_value)
+        shift = compute_flow_momentum_shift(investor_rows)
+
+        return {
+            "retail_z": retail.get("retail_z"),
+            "retail_intensity": retail.get("retail_intensity"),
+            "retail_consistency": retail.get("retail_consistency"),
+            "retail_signal": retail.get("signal"),
+            "divergence_score": divergence.get("divergence_score"),
+            "smart_ratio": divergence.get("smart_ratio"),
+            "dumb_ratio": divergence.get("dumb_ratio"),
+            "divergence_signal": divergence.get("signal"),
+            "shift_score": shift.get("shift_score"),
+            "shift_signal": shift.get("overall_signal"),
+        }
+
+    def _compute_technical(
+        self, session: Session, ticker: str, target_date: date
+    ) -> dict[str, Any] | None:
+        """Compute technical indicators (disparity, bollinger, MACD)."""
+        # Need ~252 days for MACD + enough history
+        start_date = target_date - timedelta(days=400)
+
+        result = session.execute(
+            select(DailyOHLCV.close)
+            .where(
+                and_(
+                    DailyOHLCV.ticker == ticker,
+                    DailyOHLCV.trade_date.between(start_date, target_date),
+                )
+            )
+            .order_by(DailyOHLCV.trade_date)
+        )
+        prices = [float(r.close) for r in result.all()]
+
+        if len(prices) < 20:
+            return None
+
+        disparity = compute_disparity(prices)
+        bollinger = compute_bollinger(prices)
+        macd = compute_macd(prices)
+
+        return {
+            "disparity_20d": disparity.get("disparity_20d"),
+            "disparity_60d": disparity.get("disparity_60d"),
+            "disparity_120d": disparity.get("disparity_120d"),
+            "disparity_signal": disparity.get("signal"),
+            "bb_upper": bollinger.get("upper"),
+            "bb_center": bollinger.get("center"),
+            "bb_lower": bollinger.get("lower"),
+            "bb_bandwidth": bollinger.get("bandwidth"),
+            "bb_percent_b": bollinger.get("percent_b"),
+            "bb_signal": bollinger.get("signal"),
+            "macd_value": macd.get("macd"),
+            "macd_signal_line": macd.get("signal_line"),
+            "macd_histogram": macd.get("histogram"),
+            "macd_crossover": macd.get("crossover"),
+        }
+
+    def _compute_risk(
+        self,
+        session: Session,
+        ticker: str,
+        target_date: date,
+        index_prices: dict[str, list[dict[str, Any]]],
+    ) -> dict[str, Any] | None:
+        """Compute risk metrics (volatility, beta, max drawdown)."""
+        start_date = target_date - timedelta(days=400)
+
+        result = session.execute(
+            select(DailyOHLCV.trade_date, DailyOHLCV.close)
+            .where(
+                and_(
+                    DailyOHLCV.ticker == ticker,
+                    DailyOHLCV.trade_date.between(start_date, target_date),
+                )
+            )
+            .order_by(DailyOHLCV.trade_date)
+        )
+        stock_data = [(r.trade_date, float(r.close)) for r in result.all()]
+
+        if len(stock_data) < 20:
+            return None
+
+        prices = [p for _, p in stock_data]
+
+        volatility = compute_volatility(prices)
+        drawdown = compute_max_drawdown(prices)
+
+        # Beta needs aligned index prices
+        kospi_data = index_prices.get("1001", [])
+        kospi_by_date = {d["trade_date"]: d["close"] for d in kospi_data}
+
+        aligned_stock: list[float] = []
+        aligned_index: list[float] = []
+        for d, p in stock_data:
+            if d in kospi_by_date:
+                aligned_stock.append(p)
+                aligned_index.append(kospi_by_date[d])
+
+        beta = compute_beta(aligned_stock, aligned_index)
+
+        return {
+            "volatility_20d": volatility.get("volatility_20d"),
+            "volatility_60d": volatility.get("volatility_60d"),
+            "volatility_1y": volatility.get("volatility_1y"),
+            "risk_level": volatility.get("risk_level"),
+            "beta_60d": beta.get("beta_60d"),
+            "beta_252d": beta.get("beta_252d"),
+            "beta_interpretation": beta.get("interpretation"),
+            "mdd_60d": drawdown.get("mdd_60d"),
+            "mdd_1y": drawdown.get("mdd_1y"),
+            "current_drawdown": drawdown.get("current_drawdown"),
+            "recovery_label": drawdown.get("recovery_label"),
         }
 
     # ------------------------------------------------------------------

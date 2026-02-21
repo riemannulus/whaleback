@@ -76,9 +76,11 @@ def _register_routers(app: FastAPI):
     from whaleback.web.routers.whale import router as whale_router
     from whaleback.web.routers.trend import router as trend_router
     from whaleback.web.routers.system import router as system_router
+    from whaleback.web.routers.composite import router as composite_router
 
     app.include_router(stocks_router, prefix="/api/v1")
     app.include_router(quant_router, prefix="/api/v1")
     app.include_router(whale_router, prefix="/api/v1")
     app.include_router(trend_router, prefix="/api/v1")
+    app.include_router(composite_router, prefix="/api/v1")
     app.include_router(system_router, prefix="/api/v1")

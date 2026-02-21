@@ -168,6 +168,100 @@ export interface RelativeStrength {
   series: RSPoint[];
 }
 
+// Composite (WCS) types
+export interface FlowAnalysis {
+  ticker: string;
+  trade_date: string;
+  retail_z: number | null;
+  retail_intensity: number | null;
+  retail_consistency: number | null;
+  retail_signal: string | null;
+  divergence_score: number | null;
+  smart_ratio: number | null;
+  dumb_ratio: number | null;
+  divergence_signal: string | null;
+  shift_score: number | null;
+  shift_signal: string | null;
+}
+
+export interface TechnicalAnalysis {
+  ticker: string;
+  trade_date: string;
+  disparity_20d: number | null;
+  disparity_60d: number | null;
+  disparity_120d: number | null;
+  disparity_signal: string | null;
+  bb_upper: number | null;
+  bb_center: number | null;
+  bb_lower: number | null;
+  bb_bandwidth: number | null;
+  bb_percent_b: number | null;
+  bb_signal: string | null;
+  macd_value: number | null;
+  macd_signal_line: number | null;
+  macd_histogram: number | null;
+  macd_crossover: string | null;
+}
+
+export interface RiskAnalysis {
+  ticker: string;
+  trade_date: string;
+  volatility_20d: number | null;
+  volatility_60d: number | null;
+  volatility_1y: number | null;
+  risk_level: string | null;
+  beta_60d: number | null;
+  beta_252d: number | null;
+  beta_interpretation: string | null;
+  mdd_60d: number | null;
+  mdd_1y: number | null;
+  current_drawdown: number | null;
+  recovery_label: string | null;
+}
+
+export interface CompositeScore {
+  ticker: string;
+  name: string | null;
+  trade_date: string;
+  composite_score: number | null;
+  value_score: number | null;
+  flow_score: number | null;
+  momentum_score: number | null;
+  confidence: number | null;
+  axes_available: number | null;
+  confluence_tier: number | null;
+  confluence_pattern: string | null;
+  divergence_type: string | null;
+  divergence_label: string | null;
+  action_label: string | null;
+  action_description: string | null;
+  score_tier: string | null;
+  score_label: string | null;
+  score_color: string | null;
+}
+
+export interface CompositeDetail {
+  composite: CompositeScore;
+  flow: FlowAnalysis | null;
+  technical: TechnicalAnalysis | null;
+  risk: RiskAnalysis | null;
+}
+
+export interface CompositeRankingItem {
+  ticker: string;
+  name: string | null;
+  market: string | null;
+  composite_score: number | null;
+  value_score: number | null;
+  flow_score: number | null;
+  momentum_score: number | null;
+  confluence_tier: number | null;
+  action_label: string | null;
+  score_tier: string | null;
+  score_label: string | null;
+  score_color: string | null;
+}
+
 // System types
 export interface HealthResponse {
   status: string;

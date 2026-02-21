@@ -192,3 +192,97 @@ class AnalysisTrendSnapshot(Base):
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class AnalysisFlowSnapshot(Base):
+    __tablename__ = "analysis_flow_snapshot"
+    __table_args__ = ({"postgresql_partition_by": "RANGE (trade_date)"},)
+
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(6), primary_key=True)
+    retail_z: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    retail_intensity: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
+    retail_consistency: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
+    retail_signal: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    divergence_score: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
+    smart_ratio: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
+    dumb_ratio: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
+    divergence_signal: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    shift_score: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    shift_signal: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class AnalysisTechnicalSnapshot(Base):
+    __tablename__ = "analysis_technical_snapshot"
+    __table_args__ = ({"postgresql_partition_by": "RANGE (trade_date)"},)
+
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(6), primary_key=True)
+    disparity_20d: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)
+    disparity_60d: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)
+    disparity_120d: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)
+    disparity_signal: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    bb_upper: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    bb_center: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    bb_lower: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    bb_bandwidth: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)
+    bb_percent_b: Mapped[float | None] = mapped_column(Numeric(6, 4), nullable=True)
+    bb_signal: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    macd_value: Mapped[float | None] = mapped_column(Numeric(14, 4), nullable=True)
+    macd_signal_line: Mapped[float | None] = mapped_column(Numeric(14, 4), nullable=True)
+    macd_histogram: Mapped[float | None] = mapped_column(Numeric(14, 4), nullable=True)
+    macd_crossover: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class AnalysisRiskSnapshot(Base):
+    __tablename__ = "analysis_risk_snapshot"
+    __table_args__ = ({"postgresql_partition_by": "RANGE (trade_date)"},)
+
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(6), primary_key=True)
+    volatility_20d: Mapped[float | None] = mapped_column(Numeric(12, 4), nullable=True)
+    volatility_60d: Mapped[float | None] = mapped_column(Numeric(12, 4), nullable=True)
+    volatility_1y: Mapped[float | None] = mapped_column(Numeric(12, 4), nullable=True)
+    risk_level: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    beta_60d: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    beta_252d: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    beta_interpretation: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    mdd_60d: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    mdd_1y: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    current_drawdown: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
+    recovery_label: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class AnalysisCompositeSnapshot(Base):
+    __tablename__ = "analysis_composite_snapshot"
+    __table_args__ = ({"postgresql_partition_by": "RANGE (trade_date)"},)
+
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(6), primary_key=True)
+    composite_score: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    value_score: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    flow_score: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    momentum_score: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
+    axes_available: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    confluence_tier: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    confluence_pattern: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    divergence_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    divergence_label: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    action_label: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    action_description: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    score_tier: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    score_label: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    score_color: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

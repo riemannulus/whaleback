@@ -7,10 +7,11 @@ import { LineChart } from "@/components/charts/line-chart";
 import { QuantTab } from "@/components/stock/quant-tab";
 import { WhaleTab } from "@/components/stock/whale-tab";
 import { FundamentalsTab } from "@/components/stock/fundamentals-tab";
+import { CompositeTab } from "@/components/stock/composite-tab";
 import { cn, formatKRW, formatPercent, formatLargeNumber } from "@/lib/utils";
 import { useState, useMemo } from "react";
 
-type TabType = "price" | "quant" | "whale" | "fundamental";
+type TabType = "price" | "quant" | "whale" | "fundamental" | "composite";
 
 type PeriodType = "1M" | "3M" | "6M" | "1Y" | "ALL";
 
@@ -27,7 +28,7 @@ export default function StockDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const ticker = params.ticker as string;
-  const activeTab = (searchParams.get("tab") || "price") as TabType;
+  const activeTab = (searchParams.get("tab") || "composite") as TabType;
 
   const [period, setPeriod] = useState<PeriodType>("3M");
 
@@ -138,6 +139,7 @@ export default function StockDetailPage() {
       <nav className="border-b border-slate-200">
         <div className="flex gap-8">
           {[
+            { key: "composite", label: "종합(WCS)" },
             { key: "price", label: "가격" },
             { key: "quant", label: "퀀트" },
             { key: "whale", label: "수급" },
@@ -160,6 +162,8 @@ export default function StockDetailPage() {
       </nav>
 
       {/* Tab Content */}
+      {activeTab === "composite" && <CompositeTab ticker={ticker} />}
+
       {activeTab === "price" && (
         <div className="space-y-6">
           {/* Period Selector */}

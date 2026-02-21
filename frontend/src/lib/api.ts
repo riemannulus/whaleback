@@ -78,6 +78,18 @@ export const trendApi = {
     fetchApi<any>(`/api/v1/analysis/trend/sector/${encodeURIComponent(sectorName)}`, params),
 };
 
+// Composite API
+export const compositeApi = {
+  score: (ticker: string) =>
+    fetchApi<any>(`/api/v1/analysis/composite/score/${ticker}`),
+
+  detail: (ticker: string) =>
+    fetchApi<any>(`/api/v1/analysis/composite/detail/${ticker}`),
+
+  rankings: (params?: { market?: string; min_score?: number; min_confluence?: number; score_tier?: string; sort_by?: string; page?: number; size?: number }) =>
+    fetchApi<any>("/api/v1/analysis/composite/rankings", params),
+};
+
 // System API
 export const systemApi = {
   health: () => fetchApi<any>("/api/v1/health"),

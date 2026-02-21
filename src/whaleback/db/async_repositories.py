@@ -15,12 +15,19 @@ from whaleback.db.models import (
     AnalysisQuantSnapshot,
     AnalysisWhaleSnapshot,
     AnalysisTrendSnapshot,
+    AnalysisFlowSnapshot,
+    AnalysisTechnicalSnapshot,
+    AnalysisRiskSnapshot,
+    AnalysisCompositeSnapshot,
 )
 
 logger = logging.getLogger(__name__)
 
 # Whitelist of allowed sort fields for quant rankings
 ALLOWED_SORT_FIELDS = {"safety_margin", "fscore", "rim_value", "data_completeness", "investment_grade"}
+
+# Whitelist of allowed sort fields for composite rankings
+ALLOWED_COMPOSITE_SORT_FIELDS = {"composite_score", "value_score", "flow_score", "momentum_score", "confluence_tier"}
 
 
 async def get_stocks_paginated(
@@ -188,7 +195,7 @@ async def get_trend_snapshot(
     """Get trend analysis snapshot for a ticker."""
     try:
         if as_of_date is None:
-            as_of_date = await get_latest_analysis_date(session)
+            as_of_date = await get_latest_trend_date(session)
             if as_of_date is None:
                 return None
 
@@ -326,6 +333,17 @@ async def get_whale_top(
         return [], 0
 
 
+async def get_latest_trend_date(session: AsyncSession) -> date | None:
+    """Get the most recent trend analysis date (independent of quant)."""
+    try:
+        result = await session.execute(select(func.max(AnalysisTrendSnapshot.trade_date)))
+        return result.scalar_one_or_none()
+    except Exception:
+        await session.rollback()
+        logger.warning("AnalysisTrendSnapshot table not found, returning None")
+        return None
+
+
 async def get_sector_ranking(
     session: AsyncSession,
     as_of_date: date | None = None,
@@ -334,7 +352,7 @@ async def get_sector_ranking(
     """Get sector ranking by average RS percentile."""
     try:
         if as_of_date is None:
-            as_of_date = await get_latest_analysis_date(session)
+            as_of_date = await get_latest_trend_date(session)
             if as_of_date is None:
                 return []
 
@@ -374,6 +392,156 @@ async def get_sector_ranking(
         await session.rollback()
         logger.warning("Failed to get sector ranking, table may not exist")
         return []
+
+
+async def get_composite_snapshot(
+    session: AsyncSession, ticker: str, as_of_date: date | None = None
+) -> dict[str, Any] | None:
+    """Get composite analysis snapshot for a ticker."""
+    try:
+        if as_of_date is None:
+            as_of_date = await get_latest_analysis_date(session)
+            if as_of_date is None:
+                return None
+
+        query = select(AnalysisCompositeSnapshot).where(
+            and_(AnalysisCompositeSnapshot.ticker == ticker, AnalysisCompositeSnapshot.trade_date == as_of_date)
+        )
+        result = (await session.execute(query)).scalar_one_or_none()
+        return _composite_to_dict(result) if result else None
+    except Exception:
+        await session.rollback()
+        logger.warning(f"Failed to get composite snapshot for {ticker}, table may not exist")
+        return None
+
+
+async def get_flow_snapshot(
+    session: AsyncSession, ticker: str, as_of_date: date | None = None
+) -> dict[str, Any] | None:
+    """Get flow analysis snapshot for a ticker."""
+    try:
+        if as_of_date is None:
+            as_of_date = await get_latest_analysis_date(session)
+            if as_of_date is None:
+                return None
+
+        query = select(AnalysisFlowSnapshot).where(
+            and_(AnalysisFlowSnapshot.ticker == ticker, AnalysisFlowSnapshot.trade_date == as_of_date)
+        )
+        result = (await session.execute(query)).scalar_one_or_none()
+        return _flow_to_dict(result) if result else None
+    except Exception:
+        await session.rollback()
+        logger.warning(f"Failed to get flow snapshot for {ticker}, table may not exist")
+        return None
+
+
+async def get_technical_snapshot(
+    session: AsyncSession, ticker: str, as_of_date: date | None = None
+) -> dict[str, Any] | None:
+    """Get technical analysis snapshot for a ticker."""
+    try:
+        if as_of_date is None:
+            as_of_date = await get_latest_analysis_date(session)
+            if as_of_date is None:
+                return None
+
+        query = select(AnalysisTechnicalSnapshot).where(
+            and_(AnalysisTechnicalSnapshot.ticker == ticker, AnalysisTechnicalSnapshot.trade_date == as_of_date)
+        )
+        result = (await session.execute(query)).scalar_one_or_none()
+        return _technical_to_dict(result) if result else None
+    except Exception:
+        await session.rollback()
+        logger.warning(f"Failed to get technical snapshot for {ticker}, table may not exist")
+        return None
+
+
+async def get_risk_snapshot(
+    session: AsyncSession, ticker: str, as_of_date: date | None = None
+) -> dict[str, Any] | None:
+    """Get risk analysis snapshot for a ticker."""
+    try:
+        if as_of_date is None:
+            as_of_date = await get_latest_analysis_date(session)
+            if as_of_date is None:
+                return None
+
+        query = select(AnalysisRiskSnapshot).where(
+            and_(AnalysisRiskSnapshot.ticker == ticker, AnalysisRiskSnapshot.trade_date == as_of_date)
+        )
+        result = (await session.execute(query)).scalar_one_or_none()
+        return _risk_to_dict(result) if result else None
+    except Exception:
+        await session.rollback()
+        logger.warning(f"Failed to get risk snapshot for {ticker}, table may not exist")
+        return None
+
+
+async def get_composite_rankings(
+    session: AsyncSession,
+    as_of_date: date | None = None,
+    market: str | None = None,
+    min_score: float | None = None,
+    min_confluence: int | None = None,
+    score_tier: str | None = None,
+    sort_by: str = "composite_score",
+    page: int = 1,
+    size: int = 50,
+) -> tuple[list[dict[str, Any]], int]:
+    """Get ranked stocks by WCS composite score."""
+    try:
+        if as_of_date is None:
+            as_of_date = await get_latest_analysis_date(session)
+            if as_of_date is None:
+                return [], 0
+
+        base = (
+            select(AnalysisCompositeSnapshot, Stock.name, Stock.market)
+            .join(Stock, AnalysisCompositeSnapshot.ticker == Stock.ticker)
+            .where(AnalysisCompositeSnapshot.trade_date == as_of_date)
+        )
+        count_base = (
+            select(func.count())
+            .select_from(AnalysisCompositeSnapshot)
+            .join(Stock, AnalysisCompositeSnapshot.ticker == Stock.ticker)
+            .where(AnalysisCompositeSnapshot.trade_date == as_of_date)
+        )
+
+        if market:
+            base = base.where(Stock.market == market)
+            count_base = count_base.where(Stock.market == market)
+        if min_score is not None:
+            base = base.where(AnalysisCompositeSnapshot.composite_score >= min_score)
+            count_base = count_base.where(AnalysisCompositeSnapshot.composite_score >= min_score)
+        if min_confluence is not None:
+            base = base.where(AnalysisCompositeSnapshot.confluence_tier >= min_confluence)
+            count_base = count_base.where(AnalysisCompositeSnapshot.confluence_tier >= min_confluence)
+        if score_tier:
+            base = base.where(AnalysisCompositeSnapshot.score_tier == score_tier)
+            count_base = count_base.where(AnalysisCompositeSnapshot.score_tier == score_tier)
+
+        total = (await session.execute(count_base)).scalar() or 0
+
+        if sort_by not in ALLOWED_COMPOSITE_SORT_FIELDS:
+            sort_by = "composite_score"
+        sort_col = getattr(AnalysisCompositeSnapshot, sort_by)
+        base = base.order_by(desc(sort_col).nulls_last()).offset((page - 1) * size).limit(size)
+
+        result = await session.execute(base)
+        rows = []
+        for row in result.all():
+            snapshot = row[0]
+            d = _composite_to_dict(snapshot)
+            d["name"] = row[1]
+            d["market"] = row[2]
+            rows.append(d)
+
+        return rows, total
+    except Exception:
+        await session.rollback()
+        logger.warning("Failed to get composite rankings, table may not exist")
+        return [], 0
 
 
 async def get_collection_status(session: AsyncSession) -> list[dict[str, Any]]:
@@ -488,4 +656,82 @@ def _trend_to_dict(t: AnalysisTrendSnapshot) -> dict[str, Any]:
         "rs_vs_kospi_60d": float(t.rs_vs_kospi_60d) if t.rs_vs_kospi_60d else None,
         "rs_percentile": t.rs_percentile,
         "sector": t.sector,
+    }
+
+
+def _flow_to_dict(f: AnalysisFlowSnapshot) -> dict[str, Any]:
+    return {
+        "ticker": f.ticker,
+        "trade_date": f.trade_date.isoformat(),
+        "retail_z": float(f.retail_z) if f.retail_z is not None else None,
+        "retail_intensity": float(f.retail_intensity) if f.retail_intensity is not None else None,
+        "retail_consistency": float(f.retail_consistency) if f.retail_consistency is not None else None,
+        "retail_signal": f.retail_signal,
+        "divergence_score": float(f.divergence_score) if f.divergence_score is not None else None,
+        "smart_ratio": float(f.smart_ratio) if f.smart_ratio is not None else None,
+        "dumb_ratio": float(f.dumb_ratio) if f.dumb_ratio is not None else None,
+        "divergence_signal": f.divergence_signal,
+        "shift_score": float(f.shift_score) if f.shift_score is not None else None,
+        "shift_signal": f.shift_signal,
+    }
+
+
+def _technical_to_dict(t: AnalysisTechnicalSnapshot) -> dict[str, Any]:
+    return {
+        "ticker": t.ticker,
+        "trade_date": t.trade_date.isoformat(),
+        "disparity_20d": float(t.disparity_20d) if t.disparity_20d is not None else None,
+        "disparity_60d": float(t.disparity_60d) if t.disparity_60d is not None else None,
+        "disparity_120d": float(t.disparity_120d) if t.disparity_120d is not None else None,
+        "disparity_signal": t.disparity_signal,
+        "bb_upper": float(t.bb_upper) if t.bb_upper is not None else None,
+        "bb_center": float(t.bb_center) if t.bb_center is not None else None,
+        "bb_lower": float(t.bb_lower) if t.bb_lower is not None else None,
+        "bb_bandwidth": float(t.bb_bandwidth) if t.bb_bandwidth is not None else None,
+        "bb_percent_b": float(t.bb_percent_b) if t.bb_percent_b is not None else None,
+        "bb_signal": t.bb_signal,
+        "macd_value": float(t.macd_value) if t.macd_value is not None else None,
+        "macd_signal_line": float(t.macd_signal_line) if t.macd_signal_line is not None else None,
+        "macd_histogram": float(t.macd_histogram) if t.macd_histogram is not None else None,
+        "macd_crossover": t.macd_crossover,
+    }
+
+
+def _risk_to_dict(r: AnalysisRiskSnapshot) -> dict[str, Any]:
+    return {
+        "ticker": r.ticker,
+        "trade_date": r.trade_date.isoformat(),
+        "volatility_20d": float(r.volatility_20d) if r.volatility_20d is not None else None,
+        "volatility_60d": float(r.volatility_60d) if r.volatility_60d is not None else None,
+        "volatility_1y": float(r.volatility_1y) if r.volatility_1y is not None else None,
+        "risk_level": r.risk_level,
+        "beta_60d": float(r.beta_60d) if r.beta_60d is not None else None,
+        "beta_252d": float(r.beta_252d) if r.beta_252d is not None else None,
+        "beta_interpretation": r.beta_interpretation,
+        "mdd_60d": float(r.mdd_60d) if r.mdd_60d is not None else None,
+        "mdd_1y": float(r.mdd_1y) if r.mdd_1y is not None else None,
+        "current_drawdown": float(r.current_drawdown) if r.current_drawdown is not None else None,
+        "recovery_label": r.recovery_label,
+    }
+
+
+def _composite_to_dict(c: AnalysisCompositeSnapshot) -> dict[str, Any]:
+    return {
+        "ticker": c.ticker,
+        "trade_date": c.trade_date.isoformat(),
+        "composite_score": float(c.composite_score) if c.composite_score is not None else None,
+        "value_score": float(c.value_score) if c.value_score is not None else None,
+        "flow_score": float(c.flow_score) if c.flow_score is not None else None,
+        "momentum_score": float(c.momentum_score) if c.momentum_score is not None else None,
+        "confidence": float(c.confidence) if c.confidence is not None else None,
+        "axes_available": c.axes_available,
+        "confluence_tier": c.confluence_tier,
+        "confluence_pattern": c.confluence_pattern,
+        "divergence_type": c.divergence_type,
+        "divergence_label": c.divergence_label,
+        "action_label": c.action_label,
+        "action_description": c.action_description,
+        "score_tier": c.score_tier,
+        "score_label": c.score_label,
+        "score_color": c.score_color,
     }

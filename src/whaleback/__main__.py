@@ -220,6 +220,10 @@ def init_db():
         "analysis_quant_snapshot": "analysis_quant_snapshot",
         "analysis_whale_snapshot": "analysis_whale_snapshot",
         "analysis_trend_snapshot": "analysis_trend_snapshot",
+        "analysis_flow_snapshot": "analysis_flow_snapshot",
+        "analysis_technical_snapshot": "analysis_technical_snapshot",
+        "analysis_risk_snapshot": "analysis_risk_snapshot",
+        "analysis_composite_snapshot": "analysis_composite_snapshot",
     }
 
     with engine.begin() as conn:
@@ -272,6 +276,12 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_whale_signal_{year} ON analysis_whale_snapshot_{year} (trade_date, signal)",
         "CREATE INDEX IF NOT EXISTS idx_trend_sector_{year} ON analysis_trend_snapshot_{year} (trade_date, sector)",
         "CREATE INDEX IF NOT EXISTS idx_trend_rs_{year} ON analysis_trend_snapshot_{year} (trade_date, rs_percentile DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_flow_retail_{year} ON analysis_flow_snapshot_{year} (trade_date, retail_signal)",
+        "CREATE INDEX IF NOT EXISTS idx_technical_disp_{year} ON analysis_technical_snapshot_{year} (trade_date, disparity_signal)",
+        "CREATE INDEX IF NOT EXISTS idx_risk_level_{year} ON analysis_risk_snapshot_{year} (trade_date, risk_level)",
+        "CREATE INDEX IF NOT EXISTS idx_composite_score_{year} ON analysis_composite_snapshot_{year} (trade_date, composite_score DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_composite_tier_{year} ON analysis_composite_snapshot_{year} (trade_date, confluence_tier DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_composite_grade_{year} ON analysis_composite_snapshot_{year} (trade_date, score_tier)",
     ]
 
     with engine.begin() as conn:

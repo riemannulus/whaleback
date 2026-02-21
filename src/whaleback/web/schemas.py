@@ -215,6 +215,103 @@ class SectorDetail(BaseModel):
     stocks: list[StockSummary] = []
 
 
+# --- Composite Analysis schemas ---
+
+
+class FlowAnalysis(BaseModel):
+    ticker: str
+    trade_date: str
+    retail_z: float | None = None
+    retail_intensity: float | None = None
+    retail_consistency: float | None = None
+    retail_signal: str | None = None
+    divergence_score: float | None = None
+    smart_ratio: float | None = None
+    dumb_ratio: float | None = None
+    divergence_signal: str | None = None
+    shift_score: float | None = None
+    shift_signal: str | None = None
+
+
+class TechnicalAnalysis(BaseModel):
+    ticker: str
+    trade_date: str
+    disparity_20d: float | None = None
+    disparity_60d: float | None = None
+    disparity_120d: float | None = None
+    disparity_signal: str | None = None
+    bb_upper: float | None = None
+    bb_center: float | None = None
+    bb_lower: float | None = None
+    bb_bandwidth: float | None = None
+    bb_percent_b: float | None = None
+    bb_signal: str | None = None
+    macd_value: float | None = None
+    macd_signal_line: float | None = None
+    macd_histogram: float | None = None
+    macd_crossover: str | None = None
+
+
+class RiskAnalysis(BaseModel):
+    ticker: str
+    trade_date: str
+    volatility_20d: float | None = None
+    volatility_60d: float | None = None
+    volatility_1y: float | None = None
+    risk_level: str | None = None
+    beta_60d: float | None = None
+    beta_252d: float | None = None
+    beta_interpretation: str | None = None
+    mdd_60d: float | None = None
+    mdd_1y: float | None = None
+    current_drawdown: float | None = None
+    recovery_label: str | None = None
+
+
+class CompositeScore(BaseModel):
+    ticker: str
+    name: str | None = None
+    trade_date: str
+    composite_score: float | None = Field(None, description="WCS composite score (0-100)")
+    value_score: float | None = Field(None, description="Value axis score (0-100)")
+    flow_score: float | None = Field(None, description="Flow axis score (0-100)")
+    momentum_score: float | None = Field(None, description="Momentum axis score (0-100)")
+    confidence: float | None = Field(None, description="Score confidence (0.0-1.0)")
+    axes_available: int | None = Field(None, description="Number of axes with data (0-3)")
+    confluence_tier: int | None = Field(None, description="Signal confluence tier (1-5)")
+    confluence_pattern: str | None = None
+    divergence_type: str | None = None
+    divergence_label: str | None = None
+    action_label: str | None = Field(None, description="Action recommendation in Korean")
+    action_description: str | None = None
+    score_tier: str | None = Field(None, description="Score tier: excellent/good/fair/average/caution/risk")
+    score_label: str | None = Field(None, description="Score tier in Korean")
+    score_color: str | None = Field(None, description="UI color for the tier")
+
+
+class CompositeDetail(BaseModel):
+    """Full composite analysis including sub-analyses."""
+    composite: CompositeScore
+    flow: FlowAnalysis | None = None
+    technical: TechnicalAnalysis | None = None
+    risk: RiskAnalysis | None = None
+
+
+class CompositeRankingItem(BaseModel):
+    ticker: str
+    name: str | None = None
+    market: str | None = None
+    composite_score: float | None = None
+    value_score: float | None = None
+    flow_score: float | None = None
+    momentum_score: float | None = None
+    confluence_tier: int | None = None
+    action_label: str | None = None
+    score_tier: str | None = None
+    score_label: str | None = None
+    score_color: str | None = None
+
+
 # --- System schemas ---
 
 

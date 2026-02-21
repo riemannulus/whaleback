@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { stocksApi, quantApi, whaleApi, trendApi, systemApi } from "./api";
+import { stocksApi, quantApi, whaleApi, trendApi, compositeApi, systemApi } from "./api";
 import type {
   PaginatedResponse, ApiResponse, StockSummary, StockDetail,
   PriceData, InvestorData, QuantValuation, FScoreDetail,
@@ -99,6 +99,30 @@ export function useSectorRotation(params?: { market?: string }) {
   return useQuery({
     queryKey: ["trend", "rotation", params],
     queryFn: () => trendApi.sectorRotation(params),
+  });
+}
+
+// Composite hooks
+export function useCompositeScore(ticker: string) {
+  return useQuery({
+    queryKey: ["composite", "score", ticker],
+    queryFn: () => compositeApi.score(ticker),
+    enabled: !!ticker,
+  });
+}
+
+export function useCompositeDetail(ticker: string) {
+  return useQuery({
+    queryKey: ["composite", "detail", ticker],
+    queryFn: () => compositeApi.detail(ticker),
+    enabled: !!ticker,
+  });
+}
+
+export function useCompositeRankings(params?: { market?: string; min_score?: number; min_confluence?: number; score_tier?: string; sort_by?: string; page?: number; size?: number }) {
+  return useQuery({
+    queryKey: ["composite", "rankings", params],
+    queryFn: () => compositeApi.rankings(params),
   });
 }
 
