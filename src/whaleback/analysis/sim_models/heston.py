@@ -28,6 +28,10 @@ def simulate_heston(
     theta: float = 0.04,
     xi: float = 0.3,
     rho: float = -0.7,
+    drift_adj_annual: float = 0.0,
+    theta_mult: float = 1.0,
+    v0_mult: float = 1.0,
+    rho_adj: float = 0.0,
 ) -> ModelResult | None:
     """Run Heston stochastic volatility simulation.
 
@@ -41,6 +45,10 @@ def simulate_heston(
         theta: Long-run variance level.
         xi: Vol-of-vol.
         rho: Correlation between price and variance Brownian motions.
+        drift_adj_annual: Additive annual drift adjustment (sentiment).
+        theta_mult: Multiplicative scaling for long-run variance (sentiment).
+        v0_mult: Multiplicative scaling for initial variance (sentiment).
+        rho_adj: Additive adjustment for price-variance correlation (sentiment).
     """
     if len(log_returns) < 30:
         logger.debug("Heston: insufficient data")
@@ -48,6 +56,7 @@ def simulate_heston(
 
     # Validate parameters
     rho = max(-1.0, min(1.0, rho))  # clamp to valid correlation range
+    rho = max(-0.99, min(0.99, rho + rho_adj))
 
     if 2 * kappa * theta <= xi**2:
         logger.warning(
@@ -55,6 +64,9 @@ def simulate_heston(
             "Variance may hit zero; full truncation will handle it.",
             2 * kappa * theta, xi**2,
         )
+
+    # Apply theta multiplier after Feller condition check
+    theta *= theta_mult
 
     # Annualise drift and variance so all parameters are on the same scale
     daily_mu = float(np.mean(log_returns))
@@ -65,10 +77,12 @@ def simulate_heston(
     # Then use it with the stochastic variance V_t for the correct single Ito correction.
     # E[log_ret] = (μ_arith − ½σ²_hist)·dt  →  μ_arith = (daily_mu + ½σ²_hist) × 252
     mu_arith_annual = (daily_mu + 0.5 * daily_sigma**2) * TRADING_DAYS_PER_YEAR
+    mu_arith_annual += drift_adj_annual
 
     # Initial variance: annualise daily variance to match theta scale
     recent_var = float(np.var(log_returns[-20:], ddof=1)) if len(log_returns) >= 20 else float(np.var(log_returns, ddof=1))
     v0 = max(recent_var * TRADING_DAYS_PER_YEAR, 1e-8)
+    v0 *= v0_mult
 
     max_horizon = max(horizons)
 

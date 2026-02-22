@@ -25,6 +25,8 @@ def simulate_gbm(
     horizons: tuple[int, ...],
     rng: np.random.Generator,
     max_sigma: float = 1.50,
+    drift_adj_daily: float = 0.0,
+    vol_multiplier: float = 1.0,
 ) -> ModelResult | None:
     """Run GBM simulation and return terminal prices + per-horizon stats.
 
@@ -35,6 +37,8 @@ def simulate_gbm(
         horizons: Tuple of forward horizons in trading days.
         rng: NumPy random generator for reproducibility.
         max_sigma: Cap on annualised volatility.
+        drift_adj_daily: Additive daily drift adjustment (sentiment).
+        vol_multiplier: Multiplicative volatility scaling (sentiment).
 
     Returns:
         ModelResult with terminal prices and horizon statistics, or None.
@@ -58,6 +62,8 @@ def simulate_gbm(
     # then re-apply Ito with (possibly capped) volatility for a consistent pair.
     # E[log_ret] = (μ_arith − ½σ²_hist)·dt  →  μ_arith_daily = daily_mu + ½σ²_hist
     mu_arith_daily = daily_mu + 0.5 * daily_sigma**2
+    mu_arith_daily += drift_adj_daily
+    daily_vol *= vol_multiplier
     daily_drift = mu_arith_daily - 0.5 * daily_vol**2
 
     terminal_prices: dict[int, np.ndarray] = {}

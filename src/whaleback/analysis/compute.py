@@ -4,6 +4,7 @@ Batch-computes quant, whale, and trend analysis for all active tickers
 and persists results to analysis snapshot tables.
 """
 
+import asyncio
 import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import date, timedelta
@@ -60,6 +61,8 @@ from whaleback.db.models import (
     AnalysisCompositeSnapshot,
     AnalysisSimulationSnapshot,
     AnalysisSectorFlowSnapshot,
+    AnalysisNewsSnapshot,
+    NewsArticle,
 )
 
 logger = logging.getLogger(__name__)
@@ -111,6 +114,7 @@ def _run_simulation_worker(
             "sigma_j": config.get("merton_sigma_j", 0.05),
         },
         max_sigma=config.get("max_sigma", 1.50),
+        sentiment_adjustments=config.get("sentiment_adjustments"),
     )
 
     if result is None:
@@ -127,6 +131,7 @@ def _run_simulation_worker(
         "horizons": result["horizons"],
         "target_probs": result["target_probs"],
         "model_breakdown": result.get("model_breakdown"),
+        "sentiment_applied": result.get("sentiment_applied", False),
     }
 
 
@@ -153,6 +158,7 @@ class AnalysisComputer:
                 return {
                     "quant": 0, "whale": 0, "trend": 0,
                     "flow": 0, "technical": 0, "risk": 0, "composite": 0,
+                    "news_sentiment": 0,
                 }
 
             # Pre-compute sector medians for F-Score
@@ -249,8 +255,27 @@ class AnalysisComputer:
                     logger.warning(f"Analysis failed for {ticker}: {e}")
                     continue
 
+            # --- Phase 2: News Sentiment (if enabled) ---
+            news_snapshot_rows: list[dict[str, Any]] = []
+            sentiment_lookup: dict[str, dict] = {}
+            sentiment_adj_lookup: dict[str, dict] = {}
+            all_news_articles: list[dict[str, Any]] = []
+
+            if self.settings.news_sentiment_enabled:
+                try:
+                    (
+                        news_snapshot_rows,
+                        sentiment_lookup,
+                        sentiment_adj_lookup,
+                        all_news_articles,
+                    ) = self._collect_and_score_news(tickers, target_date)
+                except Exception as e:
+                    logger.warning("News sentiment phase failed: %s", e)
+
             # --- Parallel Simulation Phase ---
-            simulation_rows = self._compute_simulations_parallel(session, tickers, target_date)
+            simulation_rows = self._compute_simulations_parallel(
+                session, tickers, target_date, sentiment_adj_lookup
+            )
 
             # Compute RS percentiles (needs all RS values first)
             if trend_rows:
@@ -308,7 +333,10 @@ class AnalysisComputer:
                     if not any([quant_d, whale_d, trend_d]):
                         continue
 
-                    score_result = compute_composite_score(quant_d, whale_d, trend_d, sim_d, sf_bonus)
+                    score_result = compute_composite_score(
+                        quant_d, whale_d, trend_d, sim_d, sf_bonus,
+                        sentiment_data=sentiment_lookup.get(ticker),
+                    )
                     confluence = detect_confluence(
                         score_result.get("value_score"),
                         score_result.get("flow_score"),
@@ -325,6 +353,7 @@ class AnalysisComputer:
                         "flow_score": score_result.get("flow_score"),
                         "momentum_score": score_result.get("momentum_score"),
                         "forecast_score": score_result.get("forecast_score"),
+                        "sentiment_score": score_result.get("sentiment_score"),
                         "confidence": score_result.get("confidence"),
                         "axes_available": score_result.get("axes_available"),
                         "confluence_tier": confluence.get("confluence_tier"),
@@ -351,12 +380,15 @@ class AnalysisComputer:
             composite_count = self._persist_snapshots(session, AnalysisCompositeSnapshot, composite_rows)
             sim_count = self._persist_snapshots(session, AnalysisSimulationSnapshot, simulation_rows)
             sector_flow_count = self._persist_sector_flow_snapshots(session, sector_flow_rows)
+            news_count = self._persist_snapshots(session, AnalysisNewsSnapshot, news_snapshot_rows)
+            news_article_count = self._persist_news_articles(session, all_news_articles)
 
             logger.info(
                 f"Analysis complete: quant={quant_count}, whale={whale_count}, "
                 f"trend={trend_count}, flow={flow_count}, technical={tech_count}, "
                 f"risk={risk_count}, composite={composite_count}, simulation={sim_count}, "
-                f"sector_flow={sector_flow_count}"
+                f"sector_flow={sector_flow_count}, news={news_count} "
+                f"(articles={news_article_count})"
             )
             return {
                 "quant": quant_count,
@@ -368,6 +400,7 @@ class AnalysisComputer:
                 "composite": composite_count,
                 "simulation": sim_count,
                 "sector_flow": sector_flow_count,
+                "news_sentiment": news_count,
             }
 
     # ------------------------------------------------------------------
@@ -844,7 +877,8 @@ class AnalysisComputer:
         }
 
     def _compute_simulations_parallel(
-        self, session: Session, tickers: dict[str, str], target_date: date
+        self, session: Session, tickers: dict[str, str], target_date: date,
+        sentiment_adj_lookup: dict[str, dict] | None = None,
     ) -> list[dict[str, Any]]:
         """Run Monte Carlo simulations for all tickers using ProcessPoolExecutor."""
         from datetime import timedelta
@@ -903,10 +937,12 @@ class AnalysisComputer:
         sim_failed = 0
 
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(_run_simulation_worker, ticker, prices, config): ticker
-                for ticker, prices in ticker_prices.items()
-            }
+            futures = {}
+            for ticker, prices in ticker_prices.items():
+                ticker_config = config
+                if sentiment_adj_lookup and ticker in sentiment_adj_lookup:
+                    ticker_config = {**config, "sentiment_adjustments": sentiment_adj_lookup[ticker]}
+                futures[executor.submit(_run_simulation_worker, ticker, prices, ticker_config)] = ticker
 
             for future in as_completed(futures):
                 ticker = futures[future]
@@ -931,6 +967,171 @@ class AnalysisComputer:
             )
         logger.info("Parallel simulations complete: %d results", len(simulation_rows))
         return simulation_rows
+
+    # ------------------------------------------------------------------
+    # News Sentiment Pipeline
+    # ------------------------------------------------------------------
+
+    def _collect_and_score_news(
+        self,
+        tickers: dict[str, str],
+        target_date: date,
+    ) -> tuple[
+        list[dict[str, Any]],   # news_snapshot_rows
+        dict[str, dict],        # sentiment_lookup for composite
+        dict[str, dict],        # sentiment_adj_lookup for simulation
+        list[dict[str, Any]],   # all_articles for NewsArticle persistence
+    ]:
+        """Collect news, score with BERT/LLM, compute sentiment per ticker.
+
+        Returns:
+            (news_snapshot_rows, sentiment_lookup, sentiment_adj_lookup, all_articles)
+        """
+        from whaleback.collectors.news import collect_news_for_ticker
+        from whaleback.analysis.news_scorer import score_articles
+        from whaleback.analysis.sentiment import (
+            compute_sentiment_score,
+            compute_sentiment_adjustments,
+        )
+
+        settings = self.settings
+
+        async def _pipeline():
+            # Phase 2a: Parallel news collection (async I/O with concurrency + rate limiting)
+            # Naver API has per-second rate limits; use low concurrency + delay
+            sem = asyncio.Semaphore(3)
+
+            async def _collect_one(ticker: str, stock_name: str):
+                async with sem:
+                    result = await collect_news_for_ticker(
+                        ticker=ticker,
+                        stock_name=stock_name,
+                        naver_client_id=settings.news_naver_client_id,
+                        naver_client_secret=settings.news_naver_client_secret,
+                        dart_api_key=settings.news_dart_api_key,
+                        lookback_days=settings.news_lookback_days,
+                    )
+                    await asyncio.sleep(0.15)  # ~7 req/s sustained rate
+                    return ticker, result
+
+            tasks = [_collect_one(t, n) for t, n in tickers.items()]
+            collection_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Organize by ticker
+            ticker_articles: dict[str, list[dict]] = {}
+            all_articles_list: list[dict] = []
+
+            for result in collection_results:
+                if isinstance(result, Exception):
+                    logger.warning("News collection error: %s", result)
+                    continue
+                t, articles = result
+                if articles:
+                    ticker_articles[t] = articles
+                    all_articles_list.extend(articles)
+
+            logger.info(
+                "News collected: %d tickers with articles, %d total articles",
+                len(ticker_articles), len(all_articles_list),
+            )
+
+            # Phase 2b: Score articles per ticker with BERT + LLM
+            ticker_scored: dict[str, list[dict]] = {}
+            for t, articles in ticker_articles.items():
+                try:
+                    scored = await score_articles(
+                        articles,
+                        confidence_threshold=settings.news_bert_confidence_threshold,
+                        anthropic_api_key=settings.news_anthropic_api_key,
+                    )
+                    if scored:
+                        ticker_scored[t] = scored
+                except Exception as e:
+                    logger.warning("Article scoring failed for %s: %s", t, e)
+
+            logger.info("Scored articles for %d tickers", len(ticker_scored))
+            return ticker_scored, all_articles_list
+
+        # Run async pipeline from sync context
+        ticker_scored, all_articles = asyncio.run(_pipeline())
+
+        # Phase 2c: Compute per-ticker sentiment scores and adjustments (pure numpy, sync)
+        news_snapshot_rows: list[dict[str, Any]] = []
+        sentiment_lookup: dict[str, dict] = {}
+        sentiment_adj_lookup: dict[str, dict] = {}
+
+        for ticker in tickers:
+            articles = ticker_scored.get(ticker, [])
+
+            score = compute_sentiment_score(
+                articles,
+                half_life=settings.news_sentiment_half_life,
+                min_articles=settings.news_min_articles,
+            )
+
+            adj = compute_sentiment_adjustments(
+                score,
+                alpha=settings.sentiment_alpha,
+                beta=settings.sentiment_beta,
+                delta=settings.sentiment_delta,
+                gamma_lam=settings.sentiment_gamma_lam,
+                gamma_mu=settings.sentiment_gamma_mu,
+            )
+
+            # Source breakdown for snapshot
+            source_breakdown: dict[str, int] = {}
+            for a in articles:
+                src = a.get("source_name", "unknown")
+                source_breakdown[src] = source_breakdown.get(src, 0) + 1
+
+            # News snapshot row (skip no_data tickers to save DB space)
+            if score.status != "no_data":
+                news_snapshot_rows.append({
+                    "trade_date": target_date,
+                    "ticker": ticker,
+                    "sentiment_score": round(score.sentiment_score, 2),
+                    "direction": round(score.direction, 4),
+                    "intensity": round(score.intensity, 3),
+                    "confidence": round(score.confidence, 3),
+                    "effective_score": round(score.effective_score, 4),
+                    "sentiment_signal": score.signal,
+                    "article_count": score.article_count,
+                    "status": score.status,
+                    "source_breakdown": source_breakdown or None,
+                })
+
+            # Sentiment lookup for composite (only active = enough articles + confidence)
+            if score.status == "active":
+                sentiment_lookup[ticker] = {
+                    "sentiment_score": round(score.sentiment_score, 2),
+                    "direction": round(score.direction, 4),
+                    "intensity": round(score.intensity, 3),
+                    "confidence": round(score.confidence, 3),
+                    "effective_score": round(score.effective_score, 4),
+                    "signal": score.signal,
+                }
+
+            # Sentiment adjustments for simulation (pickle-safe plain dict)
+            if score.status == "active":
+                sentiment_adj_lookup[ticker] = {
+                    "drift_adj_daily": adj.drift_adj_daily,
+                    "vol_multiplier": adj.vol_multiplier,
+                    "var_multiplier": adj.var_multiplier,
+                    "theta_mult": adj.theta_mult,
+                    "v0_mult": adj.v0_mult,
+                    "rho_adj": adj.rho_adj,
+                    "lam_mult": adj.lam_mult,
+                    "mu_j_adj": adj.mu_j_adj,
+                    "sig_j_mult": adj.sig_j_mult,
+                    "ensemble_weight_overrides": adj.ensemble_weight_overrides,
+                }
+
+        logger.info(
+            "Sentiment computed: %d snapshots, %d active for simulation",
+            len(news_snapshot_rows), len(sentiment_adj_lookup),
+        )
+
+        return news_snapshot_rows, sentiment_lookup, sentiment_adj_lookup, all_articles
 
     # ------------------------------------------------------------------
     # Persistence
@@ -965,6 +1166,45 @@ class AnalysisComputer:
             )
             session.execute(stmt)
             total += len(batch)
+
+        return total
+
+    def _persist_news_articles(self, session: Session, articles: list[dict[str, Any]]) -> int:
+        """Persist news articles with ON CONFLICT DO UPDATE on (ticker, source_url)."""
+        if not articles:
+            return 0
+
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        BATCH_SIZE = 500
+        total = 0
+        model_columns = {c.key for c in NewsArticle.__table__.columns}
+
+        for i in range(0, len(articles), BATCH_SIZE):
+            batch = articles[i : i + BATCH_SIZE]
+            clean_batch = []
+            for row in batch:
+                clean = {k: v for k, v in row.items() if k in model_columns}
+                # Ensure required fields exist
+                if not clean.get("ticker") or not clean.get("title"):
+                    continue
+                clean_batch.append(clean)
+
+            if not clean_batch:
+                continue
+
+            update_cols = [
+                k for k in clean_batch[0].keys()
+                if k not in ("id", "ticker", "source_url", "collected_at")
+            ]
+
+            stmt = pg_insert(NewsArticle).values(clean_batch)
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_news_ticker_url",
+                set_={col: getattr(stmt.excluded, col) for col in update_cols},
+            )
+            session.execute(stmt)
+            total += len(clean_batch)
 
         return total
 

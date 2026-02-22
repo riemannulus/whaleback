@@ -21,6 +21,8 @@ from whaleback.db.models import (
     AnalysisCompositeSnapshot,
     AnalysisSimulationSnapshot,
     AnalysisSectorFlowSnapshot,
+    NewsArticle,
+    AnalysisNewsSnapshot,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,7 +31,7 @@ logger = logging.getLogger(__name__)
 ALLOWED_SORT_FIELDS = {"safety_margin", "fscore", "rim_value", "data_completeness", "investment_grade"}
 
 # Whitelist of allowed sort fields for composite rankings
-ALLOWED_COMPOSITE_SORT_FIELDS = {"composite_score", "value_score", "flow_score", "momentum_score", "confluence_tier"}
+ALLOWED_COMPOSITE_SORT_FIELDS = {"composite_score", "value_score", "flow_score", "momentum_score", "confluence_tier", "sentiment_score"}
 
 # Whitelist of allowed sort fields for simulation rankings
 ALLOWED_SIMULATION_SORT_FIELDS = {"simulation_score"}
@@ -835,6 +837,7 @@ def _composite_to_dict(c: AnalysisCompositeSnapshot) -> dict[str, Any]:
         "flow_score": float(c.flow_score) if c.flow_score is not None else None,
         "momentum_score": float(c.momentum_score) if c.momentum_score is not None else None,
         "forecast_score": float(c.forecast_score) if c.forecast_score is not None else None,
+        "sentiment_score": float(c.sentiment_score) if c.sentiment_score is not None else None,
         "confidence": float(c.confidence) if c.confidence is not None else None,
         "axes_available": c.axes_available,
         "confluence_tier": c.confluence_tier,
@@ -952,3 +955,93 @@ async def get_sector_flow_heatmap(
         await session.rollback()
         logger.warning("Failed to get sector flow heatmap")
         return {"sectors": [], "investor_types": [], "matrix": [], "signals": []}
+
+
+async def get_news_snapshot(
+    session: AsyncSession, ticker: str, as_of_date: date | None = None
+) -> dict[str, Any] | None:
+    """Get news sentiment snapshot for a ticker."""
+    try:
+        if as_of_date is None:
+            as_of_date = await get_latest_analysis_date(session)
+            if as_of_date is None:
+                return None
+        query = select(AnalysisNewsSnapshot).where(
+            and_(AnalysisNewsSnapshot.ticker == ticker, AnalysisNewsSnapshot.trade_date == as_of_date)
+        )
+        result = (await session.execute(query)).scalar_one_or_none()
+        return _news_snapshot_to_dict(result) if result else None
+    except Exception:
+        await session.rollback()
+        logger.warning(f"Failed to get news snapshot for {ticker}")
+        return None
+
+
+async def get_news_top(
+    session: AsyncSession,
+    as_of_date: date | None = None,
+    market: str | None = None,
+    min_score: float | None = None,
+    signal: str | None = None,
+    page: int = 1,
+    size: int = 20,
+) -> tuple[list[dict[str, Any]], int]:
+    """Get top stocks by news sentiment score."""
+    try:
+        if as_of_date is None:
+            as_of_date = await get_latest_analysis_date(session)
+            if as_of_date is None:
+                return [], 0
+        base = (
+            select(AnalysisNewsSnapshot, Stock.name, Stock.market)
+            .join(Stock, AnalysisNewsSnapshot.ticker == Stock.ticker)
+            .where(AnalysisNewsSnapshot.trade_date == as_of_date)
+            .where(AnalysisNewsSnapshot.status == "active")
+        )
+        count_base = (
+            select(func.count())
+            .select_from(AnalysisNewsSnapshot)
+            .join(Stock, AnalysisNewsSnapshot.ticker == Stock.ticker)
+            .where(AnalysisNewsSnapshot.trade_date == as_of_date)
+            .where(AnalysisNewsSnapshot.status == "active")
+        )
+        if market:
+            base = base.where(Stock.market == market)
+            count_base = count_base.where(Stock.market == market)
+        if min_score is not None:
+            base = base.where(AnalysisNewsSnapshot.sentiment_score >= min_score)
+            count_base = count_base.where(AnalysisNewsSnapshot.sentiment_score >= min_score)
+        if signal:
+            base = base.where(AnalysisNewsSnapshot.sentiment_signal == signal)
+            count_base = count_base.where(AnalysisNewsSnapshot.sentiment_signal == signal)
+        total = (await session.execute(count_base)).scalar() or 0
+        base = base.order_by(desc(AnalysisNewsSnapshot.sentiment_score).nulls_last()).offset((page - 1) * size).limit(size)
+        result = await session.execute(base)
+        rows = []
+        for row in result.all():
+            snapshot = row[0]
+            d = _news_snapshot_to_dict(snapshot)
+            d["name"] = row[1]
+            d["market"] = row[2]
+            rows.append(d)
+        return rows, total
+    except Exception:
+        await session.rollback()
+        logger.warning("Failed to get news top")
+        return [], 0
+
+
+def _news_snapshot_to_dict(n: AnalysisNewsSnapshot) -> dict[str, Any]:
+    return {
+        "ticker": n.ticker,
+        "trade_date": n.trade_date.isoformat(),
+        "sentiment_score": float(n.sentiment_score) if n.sentiment_score is not None else None,
+        "direction": float(n.direction) if n.direction is not None else None,
+        "intensity": float(n.intensity) if n.intensity is not None else None,
+        "confidence": float(n.confidence) if n.confidence is not None else None,
+        "effective_score": float(n.effective_score) if n.effective_score is not None else None,
+        "sentiment_signal": n.sentiment_signal,
+        "article_count": n.article_count,
+        "status": n.status,
+        "source_breakdown": n.source_breakdown,
+    }

@@ -290,6 +290,7 @@ class CompositeScore(BaseModel):
     flow_score: float | None = Field(None, description="Flow axis score (0-100)")
     momentum_score: float | None = Field(None, description="Momentum axis score (0-100)")
     forecast_score: float | None = Field(None, description="Forecast axis score (0-100)")
+    sentiment_score: float | None = Field(None, description="Sentiment axis score (0-100)")
     confidence: float | None = Field(None, description="Score confidence (0.0-1.0)")
     axes_available: int | None = Field(None, description="Number of axes with data (0-4)")
     confluence_tier: int | None = Field(None, description="Signal confluence tier (1-5)")
@@ -320,6 +321,7 @@ class CompositeRankingItem(BaseModel):
     flow_score: float | None = None
     momentum_score: float | None = None
     forecast_score: float | None = None
+    sentiment_score: float | None = None
     confluence_tier: int | None = None
     action_label: str | None = None
     score_tier: str | None = None
@@ -379,6 +381,35 @@ class SimulationTopItem(BaseModel):
     base_price: int | None = None
     expected_return_pct_6m: float | None = None
     upside_prob_3m: float | None = None
+
+
+# --- News Sentiment schemas ---
+
+
+class NewsSnapshot(BaseModel):
+    ticker: str
+    name: str | None = None
+    trade_date: str
+    sentiment_score: float | None = Field(None, description="Normalized sentiment score (0-100)")
+    direction: float | None = Field(None, description="Sentiment direction D ∈ [-1, +1]")
+    intensity: float | None = Field(None, description="Reaction intensity I ∈ [0, 1]")
+    confidence: float | None = Field(None, description="Agreement confidence C ∈ [0, 1]")
+    effective_score: float | None = Field(None, description="Effective score S_eff = D × I × C")
+    sentiment_signal: str | None = Field(None, description="Signal: strong_buy/buy/neutral/sell/strong_sell")
+    article_count: int | None = None
+    status: str | None = Field(None, description="Status: active/stale/insufficient/no_data")
+    source_breakdown: dict[str, Any] | None = None
+
+
+class NewsTopItem(BaseModel):
+    ticker: str
+    name: str | None = None
+    market: str | None = None
+    sentiment_score: float | None = None
+    sentiment_signal: str | None = None
+    article_count: int | None = None
+    direction: float | None = None
+    effective_score: float | None = None
 
 
 # --- Sector Flow schemas ---

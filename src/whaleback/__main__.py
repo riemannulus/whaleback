@@ -218,6 +218,7 @@ def init_db():
         "ALTER TABLE analysis_whale_snapshot ADD COLUMN IF NOT EXISTS other_corp_consistency NUMERIC(4, 2)",
         "ALTER TABLE analysis_composite_snapshot ADD COLUMN IF NOT EXISTS forecast_score NUMERIC(6, 2)",
         "ALTER TABLE analysis_simulation_snapshot ADD COLUMN IF NOT EXISTS model_breakdown JSONB",
+        "ALTER TABLE analysis_composite_snapshot ADD COLUMN IF NOT EXISTS sentiment_score NUMERIC(6, 2)",
     ]
     with engine.begin() as conn:
         for stmt in add_column_statements:
@@ -242,6 +243,7 @@ def init_db():
         "analysis_composite_snapshot": "analysis_composite_snapshot",
         "analysis_simulation_snapshot": "analysis_simulation_snapshot",
         "analysis_sector_flow_snapshot": "analysis_sector_flow_snapshot",
+        "analysis_news_snapshot": "analysis_news_snapshot",
     }
 
     with engine.begin() as conn:
@@ -275,6 +277,7 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_investor_ticker ON investor_trading (ticker, trade_date DESC)",
         "CREATE INDEX IF NOT EXISTS idx_collection_log_date ON collection_log (target_date DESC)",
         "CREATE INDEX IF NOT EXISTS idx_sector_mapping_sector ON sector_mapping (sector)",
+        "CREATE INDEX IF NOT EXISTS idx_news_ticker_date ON news_articles (ticker, published_at DESC)",
     ]
 
     with engine.begin() as conn:
@@ -304,6 +307,9 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_simulation_grade_{year} ON analysis_simulation_snapshot_{year} (trade_date, simulation_grade)",
         "CREATE INDEX IF NOT EXISTS idx_sector_flow_signal_{year} ON analysis_sector_flow_snapshot_{year} (trade_date, signal)",
         "CREATE INDEX IF NOT EXISTS idx_sector_flow_sector_{year} ON analysis_sector_flow_snapshot_{year} (trade_date, sector, investor_type)",
+        "CREATE INDEX IF NOT EXISTS idx_news_snapshot_score_{year} ON analysis_news_snapshot_{year} (trade_date, sentiment_score DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_news_snapshot_signal_{year} ON analysis_news_snapshot_{year} (trade_date, sentiment_signal)",
+        "CREATE INDEX IF NOT EXISTS idx_news_snapshot_status_{year} ON analysis_news_snapshot_{year} (trade_date, status)",
     ]
 
     with engine.begin() as conn:

@@ -232,6 +232,7 @@ export interface CompositeScore {
   flow_score: number | null;
   momentum_score: number | null;
   forecast_score: number | null;
+  sentiment_score: number | null;
   confidence: number | null;
   axes_available: number | null;
   confluence_tier: number | null;
@@ -261,6 +262,7 @@ export interface CompositeRankingItem {
   flow_score: number | null;
   momentum_score: number | null;
   forecast_score: number | null;
+  sentiment_score: number | null;
   confluence_tier: number | null;
   action_label: string | null;
   score_tier: string | null;
@@ -318,6 +320,33 @@ export interface SimulationTopItem {
   base_price: number | null;
   expected_return_pct_6m: number | null;
   upside_prob_3m: number | null;
+}
+
+// News Sentiment types
+export interface NewsSnapshot {
+  ticker: string;
+  name: string | null;
+  trade_date: string;
+  sentiment_score: number | null;
+  direction: number | null;
+  intensity: number | null;
+  confidence: number | null;
+  effective_score: number | null;
+  sentiment_signal: string | null;
+  article_count: number | null;
+  status: string | null;
+  source_breakdown: Record<string, number> | null;
+}
+
+export interface NewsTopItem {
+  ticker: string;
+  name: string | null;
+  market: string | null;
+  sentiment_score: number | null;
+  sentiment_signal: string | null;
+  article_count: number | null;
+  direction: number | null;
+  effective_score: number | null;
 }
 
 // Sector Flow types

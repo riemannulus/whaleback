@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { stocksApi, quantApi, whaleApi, trendApi, compositeApi, simulationApi, sectorFlowApi, systemApi } from "./api";
+import { stocksApi, quantApi, whaleApi, trendApi, compositeApi, simulationApi, newsApi, sectorFlowApi, systemApi } from "./api";
 import type {
   PaginatedResponse, ApiResponse, StockSummary, StockDetail,
   PriceData, InvestorData, QuantValuation, FScoreDetail,
@@ -139,6 +139,22 @@ export function useSimulationRankings(params?: { market?: string; min_score?: nu
   return useQuery({
     queryKey: ["simulation", "rankings", params],
     queryFn: () => simulationApi.rankings(params),
+  });
+}
+
+// News Sentiment hooks
+export function useNewsSentiment(ticker: string) {
+  return useQuery({
+    queryKey: ["news", "sentiment", ticker],
+    queryFn: () => newsApi.sentiment(ticker),
+    enabled: !!ticker,
+  });
+}
+
+export function useNewsTop(params?: { market?: string; min_score?: number; signal?: string; page?: number; size?: number }) {
+  return useQuery({
+    queryKey: ["news", "top", params],
+    queryFn: () => newsApi.top(params),
   });
 }
 

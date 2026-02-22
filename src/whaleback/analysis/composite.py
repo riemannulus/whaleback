@@ -1,10 +1,11 @@
 """Whaleback Composite Score (WCS) - Multi-factor scoring and signal synthesis.
 
-Combines four independent analysis axes into a single actionable score:
+Combines five independent analysis axes into a single actionable score:
   - Value (가치): F-Score + RIM safety margin
   - Flow (수급): Whale score (institutional accumulation) + sector flow bonus
   - Momentum (모멘텀): RS percentile + sector rotation
   - Forecast (전망): Monte Carlo simulation score
+  - Sentiment (감성): News sentiment analysis
 
 The WCS provides:
   1. Composite score (0-100) with configurable weights
@@ -24,10 +25,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "w_value": 0.30,
-    "w_flow": 0.30,
+    "w_value": 0.25,
+    "w_flow": 0.25,
     "w_momentum": 0.20,
     "w_forecast": 0.20,
+    "w_sentiment": 0.10,
 }
 
 BUY_SIGNALS = {"strong_buy", "buy"}
@@ -35,19 +37,21 @@ SELL_SIGNALS = {"strong_sell", "sell"}
 
 INVESTOR_PROFILES: dict[str, dict[str, Any]] = {
     "value": {
-        "w_value": 0.45,
+        "w_value": 0.35,
         "w_flow": 0.20,
         "w_momentum": 0.15,
         "w_forecast": 0.20,
+        "w_sentiment": 0.10,
         "label": "가치 투자",
         "description": "저평가 우량주 발굴",
         "min_filters": {"fscore": 6, "safety_margin": 10},
     },
     "growth": {
         "w_value": 0.20,
-        "w_flow": 0.35,
+        "w_flow": 0.25,
         "w_momentum": 0.25,
         "w_forecast": 0.20,
+        "w_sentiment": 0.10,
         "label": "성장 투자",
         "description": "기관 수급과 성장성 중시",
         "min_filters": {"fscore": 5, "whale_score": 50},
@@ -55,19 +59,21 @@ INVESTOR_PROFILES: dict[str, dict[str, Any]] = {
     "momentum": {
         "w_value": 0.15,
         "w_flow": 0.25,
-        "w_momentum": 0.35,
+        "w_momentum": 0.25,
         "w_forecast": 0.25,
+        "w_sentiment": 0.10,
         "label": "모멘텀 투자",
         "description": "상대강도와 추세 추종",
         "min_filters": {"rs_percentile": 70},
     },
     "balanced": {
-        "w_value": 0.30,
-        "w_flow": 0.30,
+        "w_value": 0.25,
+        "w_flow": 0.25,
         "w_momentum": 0.20,
         "w_forecast": 0.20,
+        "w_sentiment": 0.10,
         "label": "균형 투자",
-        "description": "가치·수급·모멘텀·전망 균형",
+        "description": "가치·수급·모멘텀·전망·감성 균형",
         "min_filters": {},
     },
 }
@@ -168,17 +174,19 @@ def compute_composite_score(
     simulation_data: dict[str, Any] | None = None,
     sector_flow_bonus: float = 0.0,
     weights: dict[str, float] | None = None,
+    sentiment_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compute the Whaleback Composite Score (WCS).
 
-    Combines four axes with configurable weights:
+    Combines five axes with configurable weights:
       value_score    = 0.55 * norm_fscore + 0.45 * norm_safety_margin
                        (penalized by data_completeness if < 1.0)
       flow_score     = whale_score (already 0-100) + sector_flow_bonus
       momentum_score = clamp(rs_percentile + quadrant_bonus, 0, 100)
       forecast_score = simulation_score (already 0-100)
+      sentiment_score = normalized news sentiment score (0-100)
 
-    When fewer than 4 axes are available, weights are redistributed
+    When fewer than 5 axes are available, weights are redistributed
     proportionally among the available axes.
 
     Args:
@@ -187,11 +195,12 @@ def compute_composite_score(
         trend_data: {rs_percentile, sector_quadrant} or None.
         simulation_data: {simulation_score, ...} or None.
         sector_flow_bonus: Bonus points (0-15) from sector flow analysis.
-        weights: {w_value, w_flow, w_momentum, w_forecast} summing to 1.0, or None for defaults.
+        weights: {w_value, w_flow, w_momentum, w_forecast, w_sentiment} summing to 1.0, or None for defaults.
+        sentiment_data: {sentiment_score, ...} or None.
 
     Returns:
         {composite_score, value_score, flow_score, momentum_score,
-         forecast_score, weights_used, confidence, axes_available}
+         forecast_score, sentiment_score, weights_used, confidence, axes_available}
     """
     w = dict(weights) if weights else dict(DEFAULT_WEIGHTS)
 
@@ -241,12 +250,22 @@ def compute_composite_score(
             has_forecast = True
             forecast_score = round(float(sim_score), 2)
 
+    # --- Sub-score: Sentiment ---
+    sentiment_score: float | None = None
+    has_sentiment = False
+    if sentiment_data is not None:
+        sent_score = sentiment_data.get("sentiment_score")
+        if sent_score is not None:
+            has_sentiment = True
+            sentiment_score = round(float(sent_score), 2)
+
     # --- Weight redistribution ---
     axes = {
         "w_value": (has_value, value_score),
         "w_flow": (has_flow, flow_score),
         "w_momentum": (has_momentum, momentum_score),
         "w_forecast": (has_forecast, forecast_score),
+        "w_sentiment": (has_sentiment, sentiment_score),
     }
     axes_available = sum(1 for avail, _ in axes.values() if avail)
 
@@ -257,7 +276,8 @@ def compute_composite_score(
             "flow_score": None,
             "momentum_score": None,
             "forecast_score": None,
-            "weights_used": {"w_value": 0.0, "w_flow": 0.0, "w_momentum": 0.0, "w_forecast": 0.0},
+            "sentiment_score": None,
+            "weights_used": {"w_value": 0.0, "w_flow": 0.0, "w_momentum": 0.0, "w_forecast": 0.0, "w_sentiment": 0.0},
             "confidence": 0.0,
             "axes_available": 0,
         }
@@ -281,6 +301,8 @@ def compute_composite_score(
         composite += weights_used["w_momentum"] * momentum_score
     if has_forecast and forecast_score is not None:
         composite += weights_used["w_forecast"] * forecast_score
+    if has_sentiment and sentiment_score is not None:
+        composite += weights_used["w_sentiment"] * sentiment_score
 
     return {
         "composite_score": round(composite, 2),
@@ -288,8 +310,9 @@ def compute_composite_score(
         "flow_score": flow_score,
         "momentum_score": momentum_score,
         "forecast_score": forecast_score,
+        "sentiment_score": sentiment_score,
         "weights_used": weights_used,
-        "confidence": round(axes_available / 4, 2),
+        "confidence": round(axes_available / 5, 2),
         "axes_available": axes_available,
     }
 
@@ -563,6 +586,7 @@ def compute_profile_score(
         "w_flow": prof["w_flow"],
         "w_momentum": prof["w_momentum"],
         "w_forecast": prof["w_forecast"],
+        "w_sentiment": prof.get("w_sentiment", 0.10),
     }
 
     result = compute_composite_score(

@@ -82,13 +82,18 @@ export function SimulationTab({ ticker }: SimulationTabProps) {
             )}
           </div>
           <div className="flex-1 space-y-3">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <span className={cn("px-3 py-1 rounded-md border font-semibold text-sm", grade.bg, grade.text, grade.border)}>
                 {gradeLabels[sim.simulation_grade || ""] || "분석 불가"}
               </span>
               <span className="text-sm text-slate-500">
                 기준가: {sim.base_price != null ? formatKRW(sim.base_price) + "원" : "N/A"}
               </span>
+              {(data.data as any)?.sentiment_applied && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                  AI 뉴스 감성 반영됨
+                </span>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>

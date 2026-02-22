@@ -99,6 +99,15 @@ export const simulationApi = {
     fetchApi<any>("/api/v1/analysis/simulation/top", params),
 };
 
+// News Sentiment API
+export const newsApi = {
+  sentiment: (ticker: string) =>
+    fetchApi<any>(`/api/v1/analysis/news-sentiment/${ticker}`),
+
+  top: (params?: { market?: string; min_score?: number; signal?: string; page?: number; size?: number }) =>
+    fetchApi<any>("/api/v1/analysis/news-sentiment/top", params),
+};
+
 // Sector Flow API
 export const sectorFlowApi = {
   overview: () =>

@@ -27,6 +27,11 @@ def simulate_merton(
     mu_j: float = -0.02,
     sigma_j: float = 0.05,
     max_sigma: float = 1.50,
+    drift_adj_daily: float = 0.0,
+    vol_multiplier: float = 1.0,
+    lam_multiplier: float = 1.0,
+    mu_j_adj: float = 0.0,
+    sig_j_multiplier: float = 1.0,
 ) -> ModelResult | None:
     """Run Merton jump-diffusion simulation.
 
@@ -40,6 +45,11 @@ def simulate_merton(
         mu_j: Mean jump size (log scale).
         sigma_j: Jump size volatility.
         max_sigma: Cap on annualised volatility.
+        drift_adj_daily: Additive daily drift adjustment (sentiment).
+        vol_multiplier: Multiplicative volatility scaling (sentiment).
+        lam_multiplier: Multiplicative jump intensity scaling (sentiment).
+        mu_j_adj: Additive mean jump size adjustment (sentiment).
+        sig_j_multiplier: Multiplicative jump volatility scaling (sentiment).
     """
     if len(log_returns) < 30:
         logger.debug("Merton: insufficient data")
@@ -59,6 +69,13 @@ def simulate_merton(
     # Recover arithmetic drift from sample log returns (undo implicit Ito correction).
     # E[log_ret] = (μ_arith − ½σ²_hist)·dt  →  μ_arith_daily = daily_mu + ½σ²_hist
     mu_arith_daily = daily_mu + 0.5 * daily_sigma_orig**2
+    mu_arith_daily += drift_adj_daily
+    daily_sigma *= vol_multiplier
+
+    # Apply jump parameter sentiment adjustments
+    lam *= lam_multiplier
+    mu_j += mu_j_adj
+    sigma_j *= sig_j_multiplier
 
     # Daily jump intensity
     lam_daily = lam / TRADING_DAYS_PER_YEAR

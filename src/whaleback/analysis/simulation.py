@@ -75,6 +75,7 @@ def run_monte_carlo(
     heston_params: dict[str, Any] | None = None,
     merton_params: dict[str, Any] | None = None,
     max_sigma: float = MAX_ANNUALIZED_SIGMA,
+    sentiment_adjustments: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Run multi-model Monte Carlo simulation on a price series.
 
@@ -93,6 +94,7 @@ def run_monte_carlo(
         heston_params: Override Heston parameters {kappa, theta, xi, rho}.
         merton_params: Override Merton parameters {lam, mu_j, sigma_j}.
         max_sigma: Cap on annualised volatility.
+        sentiment_adjustments: Optional sentiment-based parameter overrides.
 
     Returns:
         Result dict with ensemble statistics + model_breakdown, or None.
@@ -147,6 +149,10 @@ def run_monte_carlo(
     if weights is None:
         weights = dict(DEFAULT_WEIGHTS)
 
+    sa = sentiment_adjustments or {}
+    if sa.get("ensemble_weight_overrides"):
+        weights = dict(sa["ensemble_weight_overrides"])
+
     garch_p = garch_params or {}
     heston_p = heston_params or {}
     merton_p = merton_params or {}
@@ -169,6 +175,8 @@ def run_monte_carlo(
                 result = simulate_gbm(
                     log_returns, base_price, num_simulations,
                     horizons, child_rng, max_sigma=max_sigma,
+                    drift_adj_daily=sa.get("drift_adj_daily", 0.0),
+                    vol_multiplier=sa.get("vol_multiplier", 1.0),
                 )
             elif model == SimModel.GARCH:
                 result = simulate_garch(
@@ -177,6 +185,8 @@ def run_monte_carlo(
                     p=garch_p.get("p", 1),
                     q=garch_p.get("q", 1),
                     max_sigma=max_sigma,
+                    drift_adj_daily=sa.get("drift_adj_daily", 0.0),
+                    var_multiplier=sa.get("var_multiplier", 1.0),
                 )
             elif model == SimModel.HESTON:
                 result = simulate_heston(
@@ -186,6 +196,10 @@ def run_monte_carlo(
                     theta=heston_p.get("theta", 0.04),
                     xi=heston_p.get("xi", 0.3),
                     rho=heston_p.get("rho", -0.7),
+                    drift_adj_annual=sa.get("drift_adj_daily", 0.0) * 252,
+                    theta_mult=sa.get("theta_mult", 1.0),
+                    v0_mult=sa.get("v0_mult", 1.0),
+                    rho_adj=sa.get("rho_adj", 0.0),
                 )
             elif model == SimModel.MERTON:
                 result = simulate_merton(
@@ -195,6 +209,11 @@ def run_monte_carlo(
                     mu_j=merton_p.get("mu_j", -0.02),
                     sigma_j=merton_p.get("sigma_j", 0.05),
                     max_sigma=max_sigma,
+                    drift_adj_daily=sa.get("drift_adj_daily", 0.0),
+                    vol_multiplier=sa.get("vol_multiplier", 1.0),
+                    lam_multiplier=sa.get("lam_mult", 1.0),
+                    mu_j_adj=sa.get("mu_j_adj", 0.0),
+                    sig_j_multiplier=sa.get("sig_j_mult", 1.0),
                 )
             else:
                 continue
@@ -234,6 +253,7 @@ def run_monte_carlo(
             "horizons": _stringify_keys(horizons_result),
             "target_probs": target_probs,
             "model_breakdown": None,
+            "sentiment_applied": sentiment_adjustments is not None,
         }
 
     # --- Ensemble combination -------------------------------------------
@@ -271,6 +291,7 @@ def run_monte_carlo(
         "horizons": _stringify_keys(ensemble_horizons),
         "target_probs": str_target_probs,
         "model_breakdown": ensemble.get("model_breakdown"),
+        "sentiment_applied": sentiment_adjustments is not None,
     }
 
 

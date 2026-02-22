@@ -80,6 +80,24 @@ class Settings(BaseSettings):
     analysis_schedule_hour: int = 19
     analysis_schedule_minute: int = 0
 
+    # News sentiment
+    news_sentiment_enabled: bool = False
+    news_naver_client_id: str = ""
+    news_naver_client_secret: str = ""
+    news_dart_api_key: str = ""
+    news_anthropic_api_key: str = ""
+    news_lookback_days: int = 14
+    news_min_articles: int = 2
+    news_bert_confidence_threshold: float = 0.70
+    news_sentiment_half_life: float = 3.0
+
+    # Sentiment → Simulation parameters
+    sentiment_alpha: float = 0.08
+    sentiment_beta: float = 0.15
+    sentiment_delta: float = 0.50
+    sentiment_gamma_lam: float = 1.50
+    sentiment_gamma_mu: float = 0.03
+
     @property
     def database_url(self) -> str:
         return (

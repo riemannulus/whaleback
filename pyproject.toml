@@ -27,6 +27,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+news = [
+    "transformers>=4.30,<5.0",
+    "torch>=2.0",
+    "anthropic>=0.40,<1.0",
+]
 dev = [
     "pytest>=7.4,<9.0",
     "pytest-cov>=4.1,<6.0",

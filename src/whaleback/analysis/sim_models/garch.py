@@ -25,6 +25,8 @@ def simulate_garch(
     p: int = 1,
     q: int = 1,
     max_sigma: float = 1.50,
+    drift_adj_daily: float = 0.0,
+    var_multiplier: float = 1.0,
 ) -> ModelResult | None:
     """Run GARCH(1,1) simulation with time-varying volatility paths.
 
@@ -40,6 +42,7 @@ def simulate_garch(
     # Recover arithmetic drift from sample log returns (undo implicit Ito correction).
     # E[log_ret] = (μ_arith − ½σ²_hist)·dt  →  μ_arith_daily = daily_mu + ½σ²_hist
     mu_arith_daily = daily_mu + 0.5 * daily_sigma_hist**2
+    mu_arith_daily += drift_adj_daily
 
     max_daily_sigma = max_sigma / np.sqrt(TRADING_DAYS_PER_YEAR)
     max_horizon = max(horizons)
@@ -59,6 +62,9 @@ def simulate_garch(
             return None
         forecast_variance = np.full(max_horizon, daily_sigma**2)
         logger.debug("GARCH: fell back to constant sigma")
+
+    # Apply variance multiplier before capping
+    forecast_variance = forecast_variance * var_multiplier
 
     # Cap variance
     max_var = max_daily_sigma**2

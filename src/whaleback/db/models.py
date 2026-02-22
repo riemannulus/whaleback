@@ -298,6 +298,7 @@ class AnalysisCompositeSnapshot(Base):
     flow_score: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     momentum_score: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     forecast_score: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    sentiment_score: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     confidence: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
     axes_available: Mapped[int | None] = mapped_column(Integer, nullable=True)
     confluence_tier: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -328,6 +329,52 @@ class AnalysisSectorFlowSnapshot(Base):
     trend_5d: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     trend_20d: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     stock_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class NewsArticle(Base):
+    __tablename__ = "news_articles"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    ticker: Mapped[str] = mapped_column(String(6), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    collected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    sentiment_raw: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
+    sentiment_label: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    sentiment_confidence: Mapped[float | None] = mapped_column(Numeric(4, 3), nullable=True)
+    scoring_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    article_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    source_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    importance_weight: Mapped[float | None] = mapped_column(Numeric(4, 2), server_default="1.0")
+
+    __table_args__ = (
+        UniqueConstraint("ticker", "source_url", name="uq_news_ticker_url"),
+    )
+
+
+class AnalysisNewsSnapshot(Base):
+    __tablename__ = "analysis_news_snapshot"
+    __table_args__ = ({"postgresql_partition_by": "RANGE (trade_date)"},)
+
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(6), primary_key=True)
+    sentiment_score: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    direction: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
+    intensity: Mapped[float | None] = mapped_column(Numeric(4, 3), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Numeric(4, 3), nullable=True)
+    effective_score: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
+    sentiment_signal: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    article_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    source_breakdown: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
