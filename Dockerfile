@@ -12,7 +12,8 @@ COPY src/ src/
 COPY migrations/ migrations/
 COPY alembic.ini ./
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir ".[news]" \
+    --extra-index-url https://download.pytorch.org/whl/cpu
 
 FROM python:3.11-slim
 
