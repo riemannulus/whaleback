@@ -174,10 +174,33 @@ function HeatmapChart({ heatmap, metric }: { heatmap: SectorFlowHeatmapData; met
 
   const investorLabels = investor_types.map((t) => investorTypeLabels[t] || t);
 
-  // Determine min/max for visual map
+  // Determine min/max and color scheme per metric
   const values = data.map(([, , v]) => v);
-  const minVal = Math.min(...values, 0);
-  const maxVal = Math.max(...values, 0);
+
+  let minVal: number, maxVal: number;
+  let colors: string[];
+  let formatTip: (val: number) => string;
+
+  if (metric === "net_purchase") {
+    // Diverging: symmetric around 0
+    const absMax = Math.max(...values.map(Math.abs), 1);
+    minVal = -absMax;
+    maxVal = absMax;
+    colors = ["#ef4444", "#fbbf24", "#f5f5f5", "#86efac", "#10b981"];
+    formatTip = (val) => formatLargeNumber(val);
+  } else if (metric === "consistency") {
+    // Diverging: 0 (always sell) → 0.5 (neutral) → 1 (always buy)
+    minVal = 0;
+    maxVal = 1;
+    colors = ["#ef4444", "#fbbf24", "#f5f5f5", "#86efac", "#10b981"];
+    formatTip = (val) => `${(val * 100).toFixed(0)}%`;
+  } else {
+    // Intensity: magnitude only, no direction → single-color gradient
+    minVal = 0;
+    maxVal = Math.max(...values, 0.001);
+    colors = ["#f5f5f5", "#c4b5fd", "#8b5cf6", "#6d28d9"];
+    formatTip = (val) => `${(val * 100).toFixed(2)}%`;
+  }
 
   const option = {
     tooltip: {
@@ -185,9 +208,7 @@ function HeatmapChart({ heatmap, metric }: { heatmap: SectorFlowHeatmapData; met
       formatter: (params: any) => {
         const investorLabel = investorLabels[params.data[0]];
         const sector = sectors[params.data[1]];
-        const val = params.data[2];
-        const formatted = metric === "net_purchase" ? formatLargeNumber(val) : `${(val * 100).toFixed(1)}%`;
-        return `${sector}<br/>${investorLabel}: ${formatted}`;
+        return `${sector}<br/>${investorLabel}: ${formatTip(params.data[2])}`;
       },
     },
     grid: { left: "12%", right: "8%", top: "8%", bottom: "18%" },
@@ -210,9 +231,7 @@ function HeatmapChart({ heatmap, metric }: { heatmap: SectorFlowHeatmapData; met
       orient: "horizontal",
       left: "center",
       bottom: "0%",
-      inRange: {
-        color: ["#ef4444", "#fbbf24", "#f5f5f5", "#86efac", "#10b981"],
-      },
+      inRange: { color: colors },
       textStyle: { fontSize: 10 },
     },
     series: [

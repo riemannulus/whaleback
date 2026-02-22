@@ -46,8 +46,6 @@ function MiniHeatmapChart({ heatmap }: { heatmap: SectorFlowHeatmapData }) {
   }
 
   const values = data.map(([, , v]) => v);
-  const minVal = Math.min(...values, 0);
-  const maxVal = Math.max(...values, 0);
   const investorLabels = investor_types.map((t) => investorTypeLabels[t] || t);
 
   const option = {
@@ -57,7 +55,7 @@ function MiniHeatmapChart({ heatmap }: { heatmap: SectorFlowHeatmapData }) {
         const investorLabel = investorLabels[params.data[0]];
         const sector = sectors[params.data[1]];
         const val = params.data[2];
-        return `${sector}<br/>${investorLabel}: ${(val * 100).toFixed(1)}%`;
+        return `${sector}<br/>${investorLabel}: ${(val * 100).toFixed(2)}%`;
       },
     },
     grid: { left: "14%", right: "4%", top: "4%", bottom: "22%" },
@@ -74,15 +72,15 @@ function MiniHeatmapChart({ heatmap }: { heatmap: SectorFlowHeatmapData }) {
       splitArea: { show: true },
     },
     visualMap: {
-      min: minVal,
-      max: maxVal,
+      min: 0,
+      max: Math.max(...values, 0.001),
       calculable: false,
       orient: "horizontal" as const,
       left: "center",
       bottom: "0%",
       itemWidth: 10,
       itemHeight: 80,
-      inRange: { color: ["#ef4444", "#fbbf24", "#f5f5f5", "#86efac", "#10b981"] },
+      inRange: { color: ["#f5f5f5", "#c4b5fd", "#8b5cf6", "#6d28d9"] },
       textStyle: { fontSize: 9 },
     },
     series: [
