@@ -48,8 +48,8 @@ def simulate_garch(
     forecast_variance = _fit_garch(log_returns, p, q, max_horizon)
 
     if forecast_variance is None:
-        # Stage 2: EWMA fallback
-        forecast_variance = _ewma_variance(log_returns, max_horizon, lam=0.94)
+        # Stage 2: Mean-reverting exponential smoothing fallback
+        forecast_variance = _mean_reverting_variance(log_returns, max_horizon, lam=0.94)
         logger.debug("GARCH: fell back to EWMA")
 
     if forecast_variance is None:
@@ -68,6 +68,10 @@ def simulate_garch(
     horizons_result = {}
 
     for h in horizons:
+        # NOTE: All paths share the same GARCH-forecasted volatility trajectory.
+        # In a full GARCH simulation, each path would evolve its own variance.
+        # This produces lighter tails than a path-dependent approach but is
+        # acceptable for screening/scoring purposes.
         sigma_path = np.sqrt(forecast_variance[:h])  # (h,)
 
         # Broadcast: (num_simulations, h)
@@ -119,10 +123,15 @@ def _fit_garch(
         return None
 
 
-def _ewma_variance(
+def _mean_reverting_variance(
     log_returns: np.ndarray, max_horizon: int, lam: float = 0.94
 ) -> np.ndarray | None:
-    """Compute EWMA variance forecast as fallback."""
+    """Compute mean-reverting exponential smoothing variance forecast.
+
+    Unlike standard RiskMetrics EWMA (flat forecast), this produces a variance
+    path that decays toward the long-run variance: h[t] = λ·h[t-1] + (1-λ)·σ²_lr.
+    More suitable for multi-step forecasting than flat EWMA.
+    """
     try:
         daily_var = float(np.var(log_returns[-20:], ddof=1)) if len(log_returns) >= 20 else float(np.var(log_returns, ddof=1))
 

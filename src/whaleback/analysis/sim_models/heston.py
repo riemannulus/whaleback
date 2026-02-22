@@ -46,6 +46,16 @@ def simulate_heston(
         logger.debug("Heston: insufficient data")
         return None
 
+    # Validate parameters
+    rho = max(-1.0, min(1.0, rho))  # clamp to valid correlation range
+
+    if 2 * kappa * theta <= xi**2:
+        logger.warning(
+            "Heston: Feller condition violated (2κθ=%.4f ≤ ξ²=%.4f). "
+            "Variance may hit zero; full truncation will handle it.",
+            2 * kappa * theta, xi**2,
+        )
+
     # Annualise drift and variance so all parameters are on the same scale
     daily_mu = float(np.mean(log_returns))
     daily_sigma = float(np.std(log_returns, ddof=1))

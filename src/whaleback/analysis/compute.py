@@ -843,46 +843,6 @@ class AnalysisComputer:
             "recovery_label": drawdown.get("recovery_label"),
         }
 
-    def _compute_simulation(
-        self, session: Session, ticker: str, target_date: date
-    ) -> dict[str, Any] | None:
-        """Run Monte Carlo simulation for a single ticker."""
-        start_date = target_date - timedelta(days=400)
-        result = session.execute(
-            select(DailyOHLCV.close)
-            .where(
-                and_(
-                    DailyOHLCV.ticker == ticker,
-                    DailyOHLCV.trade_date.between(start_date, target_date),
-                )
-            )
-            .order_by(DailyOHLCV.trade_date)
-        )
-        prices = [float(r.close) for r in result.all()]
-
-        if len(prices) < self.settings.simulation_min_history_days:
-            return None
-
-        sim_result = run_monte_carlo(
-            prices,
-            num_simulations=self.settings.simulation_num_paths,
-            ticker=ticker,
-        )
-        if sim_result is None:
-            return None
-
-        return {
-            "simulation_score": sim_result["simulation_score"],
-            "simulation_grade": sim_result["simulation_grade"],
-            "base_price": sim_result["base_price"],
-            "mu": sim_result["mu"],
-            "sigma": sim_result["sigma"],
-            "num_simulations": sim_result["num_simulations"],
-            "input_days_used": sim_result["input_days_used"],
-            "horizons": sim_result["horizons"],
-            "target_probs": sim_result["target_probs"],
-        }
-
     def _compute_simulations_parallel(
         self, session: Session, tickers: dict[str, str], target_date: date
     ) -> list[dict[str, Any]]:
@@ -939,6 +899,9 @@ class AnalysisComputer:
             len(ticker_prices), max_workers,
         )
 
+        sim_skipped = 0
+        sim_failed = 0
+
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = {
                 executor.submit(_run_simulation_worker, ticker, prices, config): ticker
@@ -955,9 +918,17 @@ class AnalysisComputer:
                             "ticker": ticker,
                             **sim_result,
                         })
+                    else:
+                        sim_skipped += 1
                 except Exception as e:
+                    sim_failed += 1
                     logger.warning("Parallel simulation failed for %s: %s", ticker, e)
 
+        if sim_skipped or sim_failed:
+            logger.warning(
+                "Simulation stats: %d succeeded, %d skipped (insufficient data/all models failed), %d errored",
+                len(simulation_rows), sim_skipped, sim_failed,
+            )
         logger.info("Parallel simulations complete: %d results", len(simulation_rows))
         return simulation_rows
 

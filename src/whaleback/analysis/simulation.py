@@ -155,9 +155,15 @@ def run_monte_carlo(
     model_results = {}
 
     for model in models:
-        # Spawn independent child RNG so adding/removing models
-        # does not change other models' results
-        child_rng = np.random.default_rng(rng.integers(2**63))
+        # Model-keyed seed: deterministic per (ticker, model) regardless of
+        # which other models are in the set — true isolation.
+        if ticker:
+            model_seed = int(
+                hashlib.sha256(f"{ticker}:{model.value}".encode()).hexdigest(), 16
+            ) % (2**63)
+        else:
+            model_seed = rng.integers(2**63)
+        child_rng = np.random.default_rng(model_seed)
         try:
             if model == SimModel.GBM:
                 result = simulate_gbm(
@@ -353,10 +359,20 @@ def compute_simulation_score(
 
 
 def _normalize_return(value: float, center: float = 0, scale: float = 20) -> float:
-    """Sigmoid normalisation for expected-return values."""
+    """Sigmoid normalisation for expected-return values.
+
+    Responsive range (10-90 score): approx -40% to +40%.
+    Returns beyond ±40% saturate, reducing discrimination for extreme-vol stocks.
+    Calibrated for typical Korean equity 6-month return distributions.
+    """
     return float(100.0 / (1.0 + np.exp(-(value - center) / scale)))
 
 
 def _normalize_var(value: float, center: float = -15, scale: float = 10) -> float:
-    """Sigmoid normalisation for VaR values (lower VaR loss = higher score)."""
+    """Sigmoid normalisation for VaR values (lower VaR loss = higher score).
+
+    Center at -15% means a 15% loss over 3 months scores 50 (neutral).
+    Responsive range (10-90 score): approx -35% to +5% VaR.
+    Calibrated for Korean equities (30% annualised downside vol → neutral).
+    """
     return float(100.0 / (1.0 + np.exp(-(value - center) / scale)))
