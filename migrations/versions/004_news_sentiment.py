@@ -33,7 +33,7 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.text("now()"),
         ),
-        sa.Column("sentiment_raw", sa.Numeric(5, 4), nullable=True),
+        sa.Column("sentiment_raw", sa.Numeric(6, 4), nullable=True),
         sa.Column("sentiment_label", sa.String(20), nullable=True),
         sa.Column("sentiment_confidence", sa.Numeric(4, 3), nullable=True),
         sa.Column("scoring_method", sa.String(20), nullable=True),

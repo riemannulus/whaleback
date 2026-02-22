@@ -225,6 +225,11 @@ async def fetch_dart_disclosures(
                 "source_type": "financial",
                 "article_type": "disclosure",
                 "importance_weight": type_info[1],
+                # Pre-scored: DART disclosures are administrative text, not suitable for BERT
+                "sentiment_raw": 0.0,
+                "sentiment_label": "neutral",
+                "sentiment_confidence": 1.0,
+                "scoring_method": "rule",
             })
 
         logger.debug("DART: fetched %d disclosures for %s", len(articles), stock_code)

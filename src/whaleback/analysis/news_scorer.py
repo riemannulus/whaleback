@@ -211,17 +211,21 @@ async def score_articles(
     if not articles:
         return []
 
-    # Prepare texts
+    # Separate pre-scored articles (e.g. DART rule-based) from those needing scoring
+    pre_scored: list[dict[str, Any]] = []
     texts: list[str] = []
     valid_articles: list[dict[str, Any]] = []
     for article in articles:
+        if article.get("scoring_method"):
+            pre_scored.append(article)
+            continue
         text = f"{article.get('title', '')} {article.get('description', '')}".strip()
         if text:
             texts.append(text[:512])
             valid_articles.append(article)
 
     if not texts:
-        return []
+        return pre_scored
 
     # Stage 1: Batch BERT scoring
     pipe = _get_bert_pipeline()
@@ -304,4 +308,4 @@ async def score_articles(
             })
             scored.append(article)
 
-    return scored
+    return pre_scored + scored

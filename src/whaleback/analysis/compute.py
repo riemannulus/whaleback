@@ -131,7 +131,6 @@ def _run_simulation_worker(
         "horizons": result["horizons"],
         "target_probs": result["target_probs"],
         "model_breakdown": result.get("model_breakdown"),
-        "sentiment_applied": result.get("sentiment_applied", False),
     }
 
 
@@ -1019,7 +1018,6 @@ class AnalysisComputer:
 
             # Organize by ticker
             ticker_articles: dict[str, list[dict]] = {}
-            all_articles_list: list[dict] = []
 
             for result in collection_results:
                 if isinstance(result, Exception):
@@ -1028,11 +1026,11 @@ class AnalysisComputer:
                 t, articles = result
                 if articles:
                     ticker_articles[t] = articles
-                    all_articles_list.extend(articles)
 
             logger.info(
                 "News collected: %d tickers with articles, %d total articles",
-                len(ticker_articles), len(all_articles_list),
+                len(ticker_articles),
+                sum(len(v) for v in ticker_articles.values()),
             )
 
             # Phase 2b: Score articles per ticker with BERT + LLM
@@ -1048,6 +1046,11 @@ class AnalysisComputer:
                         ticker_scored[t] = scored
                 except Exception as e:
                     logger.warning("Article scoring failed for %s: %s", t, e)
+
+            # Build all_articles from scored results (sentiment fields guaranteed)
+            all_articles_list: list[dict] = []
+            for scored_articles in ticker_scored.values():
+                all_articles_list.extend(scored_articles)
 
             logger.info("Scored articles for %d tickers", len(ticker_scored))
             return ticker_scored, all_articles_list

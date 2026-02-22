@@ -347,7 +347,7 @@ class NewsArticle(Base):
     collected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    sentiment_raw: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
+    sentiment_raw: Mapped[float | None] = mapped_column(Numeric(6, 4), nullable=True)
     sentiment_label: Mapped[str | None] = mapped_column(String(20), nullable=True)
     sentiment_confidence: Mapped[float | None] = mapped_column(Numeric(4, 3), nullable=True)
     scoring_method: Mapped[str | None] = mapped_column(String(20), nullable=True)

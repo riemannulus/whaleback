@@ -198,7 +198,7 @@ def compute_sentiment_score(
         src_w = SOURCE_WEIGHTS.get(src_type, 1.0)
         type_w = TYPE_WEIGHTS.get(art_type, 1.0)
 
-        v_i = src_w * type_w * importance
+        v_i = src_w * max(type_w, importance)
 
         combined_weight = w_t * v_i
         weights.append(combined_weight)
