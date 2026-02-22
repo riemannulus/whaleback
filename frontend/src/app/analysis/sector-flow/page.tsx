@@ -17,18 +17,16 @@ const investorTypeLabels: Record<string, string> = {
 
 const signalColors: Record<string, { bg: string; text: string }> = {
   strong_accumulation: { bg: "bg-emerald-100", text: "text-emerald-800" },
-  accumulation: { bg: "bg-blue-100", text: "text-blue-800" },
+  mild_accumulation: { bg: "bg-blue-100", text: "text-blue-800" },
   neutral: { bg: "bg-gray-100", text: "text-gray-600" },
   distribution: { bg: "bg-orange-100", text: "text-orange-800" },
-  strong_distribution: { bg: "bg-red-100", text: "text-red-800" },
 };
 
 const signalLabels: Record<string, string> = {
   strong_accumulation: "강한 매집",
-  accumulation: "매집",
+  mild_accumulation: "매집",
   neutral: "중립",
   distribution: "매도",
-  strong_distribution: "강한 매도",
 };
 
 type MetricType = "intensity" | "consistency" | "net_purchase";
