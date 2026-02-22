@@ -90,13 +90,16 @@ export function QuantTab({ ticker }: QuantTabProps) {
               <div className="relative h-8 bg-slate-100 rounded-full overflow-hidden">
                 <div
                   className={cn(
-                    "absolute top-0 left-0 h-full transition-all",
-                    (valuation.data.safety_margin_pct ?? 0) > 0 ? "bg-green-500" : "bg-red-500"
+                    "absolute top-0 h-full transition-all",
+                    (valuation.data.safety_margin_pct ?? 0) > 0
+                      ? "bg-green-500 left-1/2 rounded-r-full"
+                      : "bg-red-500 right-1/2 rounded-l-full"
                   )}
                   style={{
-                    width: `${Math.min(Math.abs(valuation.data.safety_margin_pct ?? 0), 100)}%`,
+                    width: `${Math.min(Math.abs(valuation.data.safety_margin_pct ?? 0) / 2, 50)}%`,
                   }}
                 />
+                <div className="absolute left-1/2 top-0 w-px h-full bg-slate-300" />
                 <div className="absolute inset-0 flex items-center justify-center text-sm font-medium text-slate-700">
                   {valuation.data.is_undervalued ? "저평가" : "고평가"}
                 </div>

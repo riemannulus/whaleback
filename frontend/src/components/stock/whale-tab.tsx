@@ -140,7 +140,7 @@ export function WhaleTab({ ticker }: WhaleTabProps) {
                     <div
                       className={cn(
                         "absolute top-0 h-full transition-all",
-                        netTotal > 0 ? "bg-green-500 left-0" : netTotal < 0 ? "bg-red-500 right-0" : ""
+                        netTotal > 0 ? "bg-green-500 left-0 rounded-r-md" : netTotal < 0 ? "bg-red-500 right-0 rounded-l-md" : ""
                       )}
                       style={{ width: `${barWidth}%` }}
                     />

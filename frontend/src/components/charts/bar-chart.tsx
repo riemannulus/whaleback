@@ -23,9 +23,16 @@ export function BarChart({ labels, series, height = 300, horizontal = false, sta
     series: series.map((s) => ({
       name: s.name,
       type: "bar",
-      data: s.data,
+      data: s.data.map((v) => ({
+        value: v,
+        itemStyle: {
+          color: s.color,
+          borderRadius: horizontal
+            ? (v >= 0 ? [0, 4, 4, 0] : [4, 0, 0, 4])
+            : (v >= 0 ? [4, 4, 0, 0] : [0, 0, 4, 4]),
+        },
+      })),
       stack: stacked ? "total" : undefined,
-      itemStyle: { color: s.color, borderRadius: horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0] },
       barMaxWidth: 40,
     })),
   };

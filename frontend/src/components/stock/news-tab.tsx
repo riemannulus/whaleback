@@ -92,18 +92,17 @@ export function NewsTab({ ticker }: { ticker: string }) {
       <div className="bg-white rounded-lg border border-slate-200 p-6">
         <h3 className="text-lg font-semibold text-slate-900 mb-4">감성 3차원 분해</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="space-y-2">
-            <div className="flex justify-between items-baseline">
-              <span className="text-sm font-medium text-slate-700">방향 (Direction)</span>
+          <div className="space-y-1">
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-600">방향 (Direction)</span>
               <span className={cn(
-                "text-lg font-bold",
-                (news.direction ?? 0) > 0 ? "text-red-600" : (news.direction ?? 0) < 0 ? "text-blue-600" : "text-slate-600"
+                "font-medium",
+                (news.direction ?? 0) > 0 ? "text-red-600" : (news.direction ?? 0) < 0 ? "text-blue-600" : "text-slate-900"
               )}>
                 {news.direction !== null ? (news.direction > 0 ? "+" : "") + news.direction.toFixed(3) : "-"}
               </span>
             </div>
-            <p className="text-xs text-slate-400">감성 방향 및 크기 [-1, +1]</p>
-            <div className="h-3 bg-slate-100 rounded-full overflow-hidden relative">
+            <div className="h-2 bg-slate-100 rounded-full overflow-hidden relative">
               <div className="absolute inset-0 flex">
                 <div className="w-1/2 flex justify-end">
                   {(news.direction ?? 0) < 0 && (
@@ -124,14 +123,15 @@ export function NewsTab({ ticker }: { ticker: string }) {
                 </div>
               </div>
             </div>
+            <p className="text-xs text-slate-400">감성 방향 및 크기 [-1, +1]</p>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-1">
             <ScoreBar value={news.intensity !== null ? news.intensity * 100 : null} label="강도 (Intensity)" />
             <p className="text-xs text-slate-400">반응 강도 (기사 수 반영) [0, 1]</p>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-1">
             <ScoreBar value={news.confidence !== null ? news.confidence * 100 : null} label="신뢰도 (Confidence)" />
             <p className="text-xs text-slate-400">기사 간 합의도 [0, 1]</p>
           </div>
