@@ -172,7 +172,7 @@ function HeatmapChart({ heatmap, metric }: { heatmap: SectorFlowHeatmapData; met
     }
   }
 
-  const yLabels = investor_types.map((t) => investorTypeLabels[t] || t);
+  const investorLabels = investor_types.map((t) => investorTypeLabels[t] || t);
 
   // Determine min/max for visual map
   const values = data.map(([, , v]) => v);
@@ -183,8 +183,8 @@ function HeatmapChart({ heatmap, metric }: { heatmap: SectorFlowHeatmapData; met
     tooltip: {
       position: "top",
       formatter: (params: any) => {
-        const sector = sectors[params.data[0]];
-        const investorLabel = yLabels[params.data[1]];
+        const investorLabel = investorLabels[params.data[0]];
+        const sector = sectors[params.data[1]];
         const val = params.data[2];
         const formatted = metric === "net_purchase" ? formatLargeNumber(val) : `${(val * 100).toFixed(1)}%`;
         return `${sector}<br/>${investorLabel}: ${formatted}`;
@@ -193,14 +193,14 @@ function HeatmapChart({ heatmap, metric }: { heatmap: SectorFlowHeatmapData; met
     grid: { left: "12%", right: "8%", top: "8%", bottom: "18%" },
     xAxis: {
       type: "category",
-      data: sectors,
-      axisLabel: { fontSize: 10, rotate: 45, interval: 0 },
+      data: investorLabels,
+      axisLabel: { fontSize: 11 },
       splitArea: { show: true },
     },
     yAxis: {
       type: "category",
-      data: yLabels,
-      axisLabel: { fontSize: 11 },
+      data: sectors,
+      axisLabel: { fontSize: 10, interval: 0 },
       splitArea: { show: true },
     },
     visualMap: {
