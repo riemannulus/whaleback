@@ -3,7 +3,7 @@
 import { useSimulationResult } from "@/lib/queries";
 import { GaugeChart } from "@/components/charts/gauge-chart";
 import { cn, formatKRW } from "@/lib/utils";
-import { AlertCircle, Target } from "lucide-react";
+import { AlertCircle, Target, Layers } from "lucide-react";
 import ReactECharts from "echarts-for-react";
 import type { SimulationResult, SimulationHorizon, SimulationModelBreakdown } from "@/types/api";
 
@@ -49,12 +49,21 @@ export function SimulationTab({ ticker }: SimulationTabProps) {
   const sim: SimulationResult = data.data;
   const horizons = sim.horizons || {};
   const grade = gradeColors[sim.simulation_grade || "neutral"] || gradeColors.neutral;
+  const modelCount = sim.model_breakdown?.model_scores?.length ?? 1;
 
   return (
     <div className="space-y-6">
       {/* Simulation Score Card */}
       <div className="bg-white rounded-lg border border-slate-200 p-6">
-        <h3 className="text-lg font-semibold text-slate-800 mb-4">몬테카를로 시뮬레이션</h3>
+        <div className="flex items-center gap-3 mb-4">
+          <h3 className="text-lg font-semibold text-slate-800">몬테카를로 시뮬레이션</h3>
+          {modelCount > 1 && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-xs font-medium text-indigo-700">
+              <Layers className="w-3 h-3" />
+              {modelCount}모델 앙상블
+            </span>
+          )}
+        </div>
         <div className="flex flex-col md:flex-row items-center gap-8">
           <div className="flex flex-col items-center">
             <GaugeChart
@@ -68,6 +77,9 @@ export function SimulationTab({ ticker }: SimulationTabProps) {
               }
               height={200}
             />
+            {modelCount > 1 && (
+              <div className="text-xs text-slate-400 mt-1">앙상블 종합 점수</div>
+            )}
           </div>
           <div className="flex-1 space-y-3">
             <div className="flex items-center gap-3">
@@ -88,12 +100,15 @@ export function SimulationTab({ ticker }: SimulationTabProps) {
                 <div className="font-medium">{sim.sigma != null ? `${(sim.sigma * 100).toFixed(2)}%` : "N/A"}</div>
               </div>
               <div>
-                <span className="text-slate-500">시뮬레이션 횟수</span>
-                <div className="font-medium">{sim.num_simulations?.toLocaleString() ?? "N/A"}</div>
+                <span className="text-slate-500">시뮬레이션 경로</span>
+                <div className="font-medium">
+                  {sim.num_simulations?.toLocaleString() ?? "N/A"}
+                  {modelCount > 1 && <span className="text-slate-400 font-normal"> × {modelCount}모델</span>}
+                </div>
               </div>
               <div>
-                <span className="text-slate-500">분석 일수</span>
-                <div className="font-medium">{sim.input_days_used ?? "N/A"}일</div>
+                <span className="text-slate-500">분석 기간</span>
+                <div className="font-medium">{sim.input_days_used ?? "N/A"}거래일</div>
               </div>
             </div>
           </div>
@@ -108,13 +123,20 @@ export function SimulationTab({ ticker }: SimulationTabProps) {
 
       {/* Fan Chart */}
       <div className="bg-white rounded-lg border border-slate-200 p-6">
-        <h3 className="text-lg font-semibold text-slate-800 mb-4">확률 분포 팬차트</h3>
+        <div className="flex items-baseline gap-2 mb-4">
+          <h3 className="text-lg font-semibold text-slate-800">확률 분포 팬차트</h3>
+          {modelCount > 1 && (
+            <span className="text-xs text-slate-400">{modelCount}개 모델 앙상블 분포 기반</span>
+          )}
+        </div>
         <FanChart horizons={horizons} basePrice={sim.base_price ?? 0} />
       </div>
 
       {/* Horizon Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {Object.entries(horizons).map(([key, h]) => (
+        {Object.entries(horizons)
+          .sort(([a], [b]) => Number(a) - Number(b))
+          .map(([key, h]) => (
           <HorizonCard key={key} horizon={h as SimulationHorizon} basePrice={sim.base_price ?? 0} />
         ))}
       </div>
@@ -122,10 +144,15 @@ export function SimulationTab({ ticker }: SimulationTabProps) {
       {/* Target Probabilities */}
       {sim.target_probs && Object.keys(sim.target_probs).length > 0 && (
         <div className="bg-white rounded-lg border border-slate-200 p-6">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">
-            <Target className="w-5 h-5 inline mr-2" />
-            목표가 도달 확률
-          </h3>
+          <div className="flex items-baseline gap-2 mb-4">
+            <h3 className="text-lg font-semibold text-slate-800">
+              <Target className="w-5 h-5 inline mr-2" />
+              목표가 도달 확률
+            </h3>
+            {modelCount > 1 && (
+              <span className="text-xs text-slate-400">앙상블 시뮬레이션 기준</span>
+            )}
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -292,36 +319,59 @@ function ModelBreakdownCard({ breakdown }: { breakdown: SimulationModelBreakdown
   const scores = breakdown.model_scores;
   if (!scores || scores.length === 0) return null;
 
+  // Find min/max for relative bar sizing
+  const validScores = scores.map(s => s.score).filter((s): s is number => s != null);
+  const maxScore = Math.max(...validScores, 1);
+
   return (
     <div className="bg-white rounded-lg border border-slate-200 p-6">
-      <h3 className="text-lg font-semibold text-slate-800 mb-4">모델별 점수 분석</h3>
+      <div className="flex items-center gap-3 mb-4">
+        <h3 className="text-lg font-semibold text-slate-800">모델별 점수 분석</h3>
+        <span className="text-xs text-slate-400">각 모델의 독립 시뮬레이션 결과</span>
+      </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {scores.map((ms) => {
           const scoreColor =
             (ms.score ?? 0) >= 70 ? "text-emerald-600" :
             (ms.score ?? 0) >= 50 ? "text-blue-600" :
             (ms.score ?? 0) >= 30 ? "text-yellow-600" : "text-red-600";
+          const barColor =
+            (ms.score ?? 0) >= 70 ? "bg-emerald-400" :
+            (ms.score ?? 0) >= 50 ? "bg-blue-400" :
+            (ms.score ?? 0) >= 30 ? "bg-yellow-400" : "bg-red-400";
+          const barWidth = ms.score != null ? Math.max(4, (ms.score / maxScore) * 100) : 0;
 
           return (
-            <div key={ms.model} className="bg-slate-50 rounded-lg p-4 text-center">
-              <div className="text-sm font-semibold text-slate-700">
-                {modelLabels[ms.model] || ms.model}
+            <div key={ms.model} className="bg-slate-50 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-sm font-semibold text-slate-700">
+                  {modelLabels[ms.model] || ms.model}
+                </div>
+                <div className={cn("text-lg font-bold", scoreColor)}>
+                  {ms.score != null ? ms.score.toFixed(1) : "N/A"}
+                </div>
               </div>
               <div className="text-xs text-slate-400 mb-2">
                 {modelDescriptions[ms.model] || ""}
               </div>
-              <div className={cn("text-2xl font-bold", scoreColor)}>
-                {ms.score != null ? ms.score.toFixed(1) : "N/A"}
+              {/* Score bar */}
+              <div className="h-1.5 bg-slate-200 rounded-full mb-2">
+                <div className={cn("h-full rounded-full transition-all", barColor)} style={{ width: `${barWidth}%` }} />
               </div>
-              <div className="text-xs text-slate-400 mt-1">
-                가중치: {(ms.weight * 100).toFixed(0)}%
+              {/* Weight indicator */}
+              <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                <span>가중치</span>
+                <div className="flex-1 h-1 bg-slate-200 rounded-full">
+                  <div className="h-full bg-indigo-300 rounded-full" style={{ width: `${ms.weight * 100}%` }} />
+                </div>
+                <span className="font-medium">{(ms.weight * 100).toFixed(0)}%</span>
               </div>
             </div>
           );
         })}
       </div>
-      <div className="text-xs text-slate-400 mt-3 pt-3 border-t">
-        앙상블 방법: {breakdown.ensemble_method === "weighted_pooling" ? "가중 풀링" : breakdown.ensemble_method || "N/A"}
+      <div className="text-xs text-slate-400 mt-3 pt-3 border-t flex items-center gap-4">
+        <span>앙상블: {breakdown.ensemble_method === "weighted_pooling" ? "가중 풀링 (모델별 가중치 비례 샘플링)" : breakdown.ensemble_method || "N/A"}</span>
       </div>
     </div>
   );
