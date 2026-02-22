@@ -294,6 +294,18 @@ export interface SimulationResult {
   input_days_used: number | null;
   horizons: Record<string, SimulationHorizon> | null;
   target_probs: Record<string, Record<string, number>> | null;
+  model_breakdown: SimulationModelBreakdown | null;
+}
+
+export interface ModelScore {
+  model: string;
+  score: number | null;
+  weight: number;
+}
+
+export interface SimulationModelBreakdown {
+  model_scores: ModelScore[] | null;
+  ensemble_method: string | null;
 }
 
 export interface SimulationTopItem {

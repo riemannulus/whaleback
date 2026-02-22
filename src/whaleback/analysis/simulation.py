@@ -1,13 +1,21 @@
-"""Monte Carlo simulation using Geometric Brownian Motion.
+"""Monte Carlo simulation orchestrator.
 
-Pure computation functions for forward-looking price simulations.
-No database dependency - operates on price series passed as arguments.
+Delegates to individual stochastic models (GBM, GARCH, Heston, Merton)
+and combines results via weighted-pooling ensemble.
 """
 
+import hashlib
 import logging
 from typing import Any
 
 import numpy as np
+
+from whaleback.analysis.sim_models import SimModel
+from whaleback.analysis.sim_models.gbm import simulate_gbm
+from whaleback.analysis.sim_models.garch import simulate_garch
+from whaleback.analysis.sim_models.heston import simulate_heston
+from whaleback.analysis.sim_models.merton import simulate_merton
+from whaleback.analysis.sim_models.ensemble import combine_ensemble
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +27,8 @@ DEFAULT_NUM_SIMULATIONS = 10000
 DEFAULT_HORIZONS = (21, 63, 126, 252)  # 1M, 3M, 6M, 12M trading days
 DEFAULT_CONFIDENCE_LEVELS = (0.05, 0.25, 0.50, 0.75, 0.95)
 DEFAULT_TARGET_MULTIPLIERS = (1.1, 1.2, 1.5)
-MIN_HISTORY_DAYS = 60  # Minimum trading days required
-MAX_ANNUALIZED_SIGMA = 1.50  # Cap extreme volatility at 150%
+MIN_HISTORY_DAYS = 60
+MAX_ANNUALIZED_SIGMA = 1.50
 TRADING_DAYS_PER_YEAR = 252
 
 HORIZON_LABELS = {
@@ -32,10 +40,21 @@ HORIZON_LABELS = {
 
 # Simulation score weights
 SCORE_WEIGHTS = {
-    "median_return_6m": 0.40,
+    "mean_return_6m": 0.40,
     "upside_prob_3m": 0.35,
     "neg_var_5pct_3m": 0.25,
 }
+
+# Default ensemble weights
+DEFAULT_WEIGHTS = {
+    SimModel.GBM.value: 0.25,
+    SimModel.GARCH.value: 0.30,
+    SimModel.HESTON.value: 0.20,
+    SimModel.MERTON.value: 0.25,
+}
+
+# All available models
+ALL_MODELS = (SimModel.GBM, SimModel.GARCH, SimModel.HESTON, SimModel.MERTON)
 
 
 # ---------------------------------------------------------------------------
@@ -49,23 +68,36 @@ def run_monte_carlo(
     horizons: tuple[int, ...] = DEFAULT_HORIZONS,
     target_multipliers: tuple[float, ...] = DEFAULT_TARGET_MULTIPLIERS,
     ticker: str | None = None,
+    # NEW — all optional for backward compatibility
+    models: tuple[SimModel, ...] | None = None,
+    weights: dict[str, float] | None = None,
+    garch_params: dict[str, Any] | None = None,
+    heston_params: dict[str, Any] | None = None,
+    merton_params: dict[str, Any] | None = None,
+    max_sigma: float = MAX_ANNUALIZED_SIGMA,
 ) -> dict[str, Any] | None:
-    """Run GBM-based Monte Carlo simulation on a price series.
+    """Run multi-model Monte Carlo simulation on a price series.
 
-    Generates ``num_simulations`` price paths for each horizon using
-    Geometric Brownian Motion and computes distributional statistics.
+    Runs selected models (default: all four), combines via weighted pooling,
+    and returns ensemble statistics with per-model breakdown.
 
     Args:
-        prices: List of closing prices in chronological order (oldest first).
-        num_simulations: Number of simulated paths per horizon.
-        horizons: Tuple of forward horizons in trading days.
+        prices: Closing prices in chronological order (oldest first).
+        num_simulations: Number of simulated paths per model per horizon.
+        horizons: Forward horizons in trading days.
         target_multipliers: Price multipliers for target-probability analysis.
-        ticker: Optional ticker string used as random seed for reproducibility.
+        ticker: Optional ticker for reproducible seeding.
+        models: Which models to run (default: all four).
+        weights: Model weights for ensemble (default: config weights).
+        garch_params: Override GARCH parameters {p, q}.
+        heston_params: Override Heston parameters {kappa, theta, xi, rho}.
+        merton_params: Override Merton parameters {lam, mu_j, sigma_j}.
+        max_sigma: Cap on annualised volatility.
 
     Returns:
-        Result dict with simulation statistics, or ``None`` if insufficient data.
+        Result dict with ensemble statistics + model_breakdown, or None.
     """
-    # --- Input validation ------------------------------------------------
+    # --- Input validation (unchanged) -----------------------------------
     if not prices or len(prices) < MIN_HISTORY_DAYS:
         logger.debug(
             "Insufficient price history: %d days (need %d)",
@@ -74,107 +106,143 @@ def run_monte_carlo(
         )
         return None
 
-    # Filter out NaN / zero / negative prices
-    clean_prices = np.array([p for p in prices if p is not None and np.isfinite(p) and p > 0])
+    clean_prices = np.array(
+        [p for p in prices if p is not None and np.isfinite(p) and p > 0]
+    )
     if len(clean_prices) < MIN_HISTORY_DAYS:
         logger.debug("After cleaning, insufficient prices: %d", len(clean_prices))
         return None
 
-    # --- Compute daily log returns ----------------------------------------
+    # --- Compute daily log returns --------------------------------------
     log_returns = np.diff(np.log(clean_prices))
 
     if len(log_returns) == 0 or np.all(log_returns == 0):
         logger.debug("No valid returns (zero variance)")
         return None
 
-    # --- Derive annualised drift (mu) and volatility (sigma) --------------
+    # --- Derive annualised stats for metadata ---------------------------
     daily_mu = float(np.mean(log_returns))
     daily_sigma = float(np.std(log_returns, ddof=1))
-
     mu = daily_mu * TRADING_DAYS_PER_YEAR
     sigma = daily_sigma * np.sqrt(TRADING_DAYS_PER_YEAR)
 
-    # Cap extreme volatility
-    if sigma > MAX_ANNUALIZED_SIGMA:
-        logger.debug("Capping sigma from %.4f to %.4f", sigma, MAX_ANNUALIZED_SIGMA)
-        sigma = MAX_ANNUALIZED_SIGMA
-
-    # Handle sigma == 0 edge case (constant price)
+    if sigma > max_sigma:
+        sigma = max_sigma
     if sigma == 0.0:
         logger.debug("Zero volatility detected, skipping simulation")
         return None
 
     base_price = int(clean_prices[-1])
 
-    # --- Seed RNG for reproducibility (optional) --------------------------
-    rng = np.random.default_rng(
-        seed=hash(ticker) % (2**32) if ticker else None
-    )
+    # --- Stable seed (hashlib-based, not session-dependent hash()) ------
+    if ticker:
+        seed = int(hashlib.sha256(ticker.encode()).hexdigest(), 16) % (2**32)
+    else:
+        seed = None
+    rng = np.random.default_rng(seed=seed)
 
-    # --- Simulate per horizon ---------------------------------------------
-    daily_drift = mu / TRADING_DAYS_PER_YEAR - (sigma ** 2) / (2 * TRADING_DAYS_PER_YEAR)
-    daily_vol = sigma / np.sqrt(TRADING_DAYS_PER_YEAR)
+    # --- Resolve models and weights -------------------------------------
+    if models is None:
+        models = ALL_MODELS
+    if weights is None:
+        weights = dict(DEFAULT_WEIGHTS)
 
-    horizons_result: dict[int, dict[str, Any]] = {}
-    # Cache terminal prices per horizon for target-prob calculation
-    terminal_prices_cache: dict[int, np.ndarray] = {}
+    garch_p = garch_params or {}
+    heston_p = heston_params or {}
+    merton_p = merton_params or {}
 
-    for h in horizons:
-        # Z matrix: (num_simulations, h)
-        z = rng.standard_normal((num_simulations, h))
+    # --- Run each model -------------------------------------------------
+    model_results = {}
 
-        # GBM daily log returns
-        daily_log_returns = daily_drift + daily_vol * z  # (N, h)
+    for model in models:
+        try:
+            if model == SimModel.GBM:
+                result = simulate_gbm(
+                    log_returns, base_price, num_simulations,
+                    horizons, rng, max_sigma=max_sigma,
+                )
+            elif model == SimModel.GARCH:
+                result = simulate_garch(
+                    log_returns, base_price, num_simulations,
+                    horizons, rng,
+                    p=garch_p.get("p", 1),
+                    q=garch_p.get("q", 1),
+                    max_sigma=max_sigma,
+                )
+            elif model == SimModel.HESTON:
+                result = simulate_heston(
+                    log_returns, base_price, num_simulations,
+                    horizons, rng,
+                    kappa=heston_p.get("kappa", 2.0),
+                    theta=heston_p.get("theta", 0.04),
+                    xi=heston_p.get("xi", 0.3),
+                    rho=heston_p.get("rho", -0.7),
+                )
+            elif model == SimModel.MERTON:
+                result = simulate_merton(
+                    log_returns, base_price, num_simulations,
+                    horizons, rng,
+                    lam=merton_p.get("lam", 0.1),
+                    mu_j=merton_p.get("mu_j", -0.02),
+                    sigma_j=merton_p.get("sigma_j", 0.05),
+                    max_sigma=max_sigma,
+                )
+            else:
+                continue
 
-        # Cumulative log returns
-        cumulative = np.cumsum(daily_log_returns, axis=1)  # (N, h)
+            if result is not None:
+                model_results[model.value] = result
 
-        # Price paths
-        price_paths = base_price * np.exp(cumulative)  # (N, h)
+        except Exception as e:
+            logger.warning("Model %s failed: %s", model.value, e)
+            continue
 
-        terminal = price_paths[:, -1]  # (N,)
-        terminal_prices_cache[h] = terminal
+    if not model_results:
+        logger.debug("All models failed, returning None")
+        return None
 
-        # Percentiles (as integer prices)
-        p5 = int(np.percentile(terminal, 5))
-        p25 = int(np.percentile(terminal, 25))
-        p50 = int(np.percentile(terminal, 50))
-        p75 = int(np.percentile(terminal, 75))
-        p95 = int(np.percentile(terminal, 95))
+    # --- Single model fast path -----------------------------------------
+    if len(model_results) == 1:
+        only_model = next(iter(model_results.values()))
+        horizons_result = only_model["horizons"]
 
-        expected_return_pct = round(float((np.mean(terminal) / base_price - 1) * 100), 2)
-        var_5pct_pct = round(float((np.percentile(terminal, 5) / base_price - 1) * 100), 2)
-        upside_prob = round(float(np.mean(terminal > base_price)), 4)
+        # Target probabilities
+        target_probs = _compute_target_probs(
+            {h: only_model["terminal_prices"][h] for h in horizons if h in only_model["terminal_prices"]},
+            base_price, target_multipliers,
+        )
 
-        label = HORIZON_LABELS.get(h, f"{h}일")
+        score_result = compute_simulation_score(horizons_result)
 
-        horizons_result[h] = {
-            "label": label,
-            "p5": p5,
-            "p25": p25,
-            "p50": p50,
-            "p75": p75,
-            "p95": p95,
-            "expected_return_pct": expected_return_pct,
-            "var_5pct_pct": var_5pct_pct,
-            "upside_prob": upside_prob,
+        return {
+            "simulation_score": score_result["score"],
+            "simulation_grade": score_result["grade"],
+            "base_price": base_price,
+            "mu": round(mu, 6),
+            "sigma": round(sigma, 6),
+            "num_simulations": num_simulations,
+            "input_days_used": len(clean_prices),
+            "horizons": horizons_result,
+            "target_probs": target_probs,
+            "model_breakdown": None,
         }
 
-    # --- Target-price probabilities ---------------------------------------
-    target_probs: dict[str, dict[int, float]] = {}
+    # --- Ensemble combination -------------------------------------------
+    ensemble = combine_ensemble(
+        model_results=model_results,
+        weights=weights,
+        horizons=horizons,
+        base_price=base_price,
+        target_multipliers=target_multipliers,
+        total_samples=num_simulations,
+    )
 
-    for mult in target_multipliers:
-        target_price = base_price * mult
-        key = str(mult)
-        target_probs[key] = {}
+    if not ensemble or "horizons" not in ensemble:
+        logger.debug("Ensemble combination failed")
+        return None
 
-        for h in horizons:
-            terminal = terminal_prices_cache[h]
-            prob = round(float(np.mean(terminal > target_price)), 4)
-            target_probs[key][h] = prob
-
-    # --- Simulation score -------------------------------------------------
-    score_result = compute_simulation_score(horizons_result)
+    ensemble_horizons = ensemble["horizons"]
+    score_result = compute_simulation_score(ensemble_horizons)
 
     return {
         "simulation_score": score_result["score"],
@@ -184,13 +252,30 @@ def run_monte_carlo(
         "sigma": round(sigma, 6),
         "num_simulations": num_simulations,
         "input_days_used": len(clean_prices),
-        "horizons": horizons_result,
-        "target_probs": target_probs,
+        "horizons": ensemble_horizons,
+        "target_probs": ensemble.get("target_probs", {}),
+        "model_breakdown": ensemble.get("model_breakdown"),
     }
 
 
+def _compute_target_probs(
+    terminal_prices: dict[int, np.ndarray],
+    base_price: int,
+    target_multipliers: tuple[float, ...],
+) -> dict[str, dict[int, float]]:
+    """Compute target-price probabilities from terminal price arrays."""
+    target_probs: dict[str, dict[int, float]] = {}
+    for mult in target_multipliers:
+        target_price = base_price * mult
+        key = str(mult)
+        target_probs[key] = {}
+        for h, terminal in terminal_prices.items():
+            target_probs[key][h] = round(float(np.mean(terminal > target_price)), 4)
+    return target_probs
+
+
 # ---------------------------------------------------------------------------
-# Scoring
+# Scoring (unchanged from original)
 # ---------------------------------------------------------------------------
 
 
@@ -222,20 +307,18 @@ def compute_simulation_score(
 
     # Normalize components to 0-100
     norm_return = _normalize_return(median_return_6m, center=0, scale=20)
-    norm_upside = upside_prob_3m * 100  # already 0-1, scale to 0-100
+    norm_upside = upside_prob_3m * 100
     norm_var = _normalize_var(var_5pct_3m, center=-15, scale=10)
 
     w = SCORE_WEIGHTS
     score = (
-        w["median_return_6m"] * norm_return
+        w["mean_return_6m"] * norm_return
         + w["upside_prob_3m"] * norm_upside
         + w["neg_var_5pct_3m"] * norm_var
     )
 
-    # Clamp
     score = round(float(np.clip(score, 0, 100)), 2)
 
-    # Grade
     if score >= 70:
         grade = "positive"
     elif score >= 50:
@@ -254,18 +337,10 @@ def compute_simulation_score(
 
 
 def _normalize_return(value: float, center: float = 0, scale: float = 20) -> float:
-    """Sigmoid normalisation for expected-return values.
-
-    Maps ``value`` to the range [0, 100] with the midpoint at ``center``.
-    ``scale`` controls steepness; larger = more gradual.
-    """
+    """Sigmoid normalisation for expected-return values."""
     return float(100.0 / (1.0 + np.exp(-(value - center) / scale)))
 
 
 def _normalize_var(value: float, center: float = -15, scale: float = 10) -> float:
-    """Sigmoid normalisation for VaR values (lower VaR loss = higher score).
-
-    A VaR of 0 % (no loss) maps near 100; a severe -30 % maps near 0.
-    The sign is inverted so that *less negative* VaR yields a *higher* score.
-    """
+    """Sigmoid normalisation for VaR values (lower VaR loss = higher score)."""
     return float(100.0 / (1.0 + np.exp(-(value - center) / scale)))

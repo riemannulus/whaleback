@@ -5,7 +5,7 @@ import { GaugeChart } from "@/components/charts/gauge-chart";
 import { cn, formatKRW } from "@/lib/utils";
 import { AlertCircle, Target } from "lucide-react";
 import ReactECharts from "echarts-for-react";
-import type { SimulationResult, SimulationHorizon } from "@/types/api";
+import type { SimulationResult, SimulationHorizon, SimulationModelBreakdown } from "@/types/api";
 
 interface SimulationTabProps {
   ticker: string;
@@ -101,6 +101,11 @@ export function SimulationTab({ ticker }: SimulationTabProps) {
         <div className="text-xs text-slate-400 pt-3 mt-3 border-t">기준일: {sim.as_of_date}</div>
       </div>
 
+      {/* Model Breakdown */}
+      {sim.model_breakdown?.model_scores && sim.model_breakdown.model_scores.length > 1 && (
+        <ModelBreakdownCard breakdown={sim.model_breakdown} />
+      )}
+
       {/* Fan Chart */}
       <div className="bg-white rounded-lg border border-slate-200 p-6">
         <h3 className="text-lg font-semibold text-slate-800 mb-4">확률 분포 팬차트</h3>
@@ -158,11 +163,14 @@ export function SimulationTab({ ticker }: SimulationTabProps) {
         <h3 className="text-sm font-semibold text-slate-800 mb-2">몬테카를로 시뮬레이션이란?</h3>
         <div className="text-sm text-slate-600 space-y-2">
           <p>
-            과거 주가 데이터에서 추출한 수익률과 변동성을 기반으로 기하 브라운 운동(GBM) 모델을 사용하여
-            10,000개의 미래 가격 경로를 시뮬레이션합니다.
+            과거 주가 데이터에서 추출한 수익률과 변동성을 기반으로 4개의 확률 모델(GBM, GARCH, Heston, Merton)을
+            앙상블하여 10,000개의 미래 가격 경로를 시뮬레이션합니다.
           </p>
           <ul className="list-disc list-inside space-y-1 text-xs">
-            <li><strong>팬차트:</strong> 5%, 25%, 50%, 75%, 95% 백분위 가격 범위</li>
+            <li><strong>GBM:</strong> 기하 브라운 운동 (상수 변동성 기준 모델)</li>
+            <li><strong>GARCH(1,1):</strong> 시간에 따라 변하는 변동성 군집 반영</li>
+            <li><strong>Heston SV:</strong> 확률적 변동성 + 레버리지 효과 반영</li>
+            <li><strong>Merton JD:</strong> 포아송 점프 프로세스로 급등/급락 반영</li>
             <li><strong>시뮬레이션 점수:</strong> 6개월 기대수익률(40%), 3개월 상승확률(35%), 3개월 VaR(25%) 종합</li>
           </ul>
           <p className="text-xs text-slate-500 pt-2 border-t">
@@ -261,6 +269,59 @@ function HorizonCard({ horizon, basePrice: _basePrice }: { horizon: SimulationHo
         <div className="text-xs text-slate-400 pt-2 border-t">
           범위: {horizon.p5 != null ? formatKRW(horizon.p5) : "?"} ~ {horizon.p95 != null ? formatKRW(horizon.p95) : "?"}원
         </div>
+      </div>
+    </div>
+  );
+}
+
+const modelLabels: Record<string, string> = {
+  gbm: "GBM",
+  garch: "GARCH(1,1)",
+  heston: "Heston SV",
+  merton: "Merton JD",
+};
+
+const modelDescriptions: Record<string, string> = {
+  gbm: "상수 변동성",
+  garch: "시간가변 변동성",
+  heston: "확률적 변동성",
+  merton: "점프 확산",
+};
+
+function ModelBreakdownCard({ breakdown }: { breakdown: SimulationModelBreakdown }) {
+  const scores = breakdown.model_scores;
+  if (!scores || scores.length === 0) return null;
+
+  return (
+    <div className="bg-white rounded-lg border border-slate-200 p-6">
+      <h3 className="text-lg font-semibold text-slate-800 mb-4">모델별 점수 분석</h3>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {scores.map((ms) => {
+          const scoreColor =
+            (ms.score ?? 0) >= 70 ? "text-emerald-600" :
+            (ms.score ?? 0) >= 50 ? "text-blue-600" :
+            (ms.score ?? 0) >= 30 ? "text-yellow-600" : "text-red-600";
+
+          return (
+            <div key={ms.model} className="bg-slate-50 rounded-lg p-4 text-center">
+              <div className="text-sm font-semibold text-slate-700">
+                {modelLabels[ms.model] || ms.model}
+              </div>
+              <div className="text-xs text-slate-400 mb-2">
+                {modelDescriptions[ms.model] || ""}
+              </div>
+              <div className={cn("text-2xl font-bold", scoreColor)}>
+                {ms.score != null ? ms.score.toFixed(1) : "N/A"}
+              </div>
+              <div className="text-xs text-slate-400 mt-1">
+                가중치: {(ms.weight * 100).toFixed(0)}%
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="text-xs text-slate-400 mt-3 pt-3 border-t">
+        앙상블 방법: {breakdown.ensemble_method === "weighted_pooling" ? "가중 풀링" : breakdown.ensemble_method || "N/A"}
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ and persists results to analysis snapshot tables.
 """
 
 import logging
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import date, timedelta
 from typing import Any
 
@@ -64,6 +65,71 @@ from whaleback.db.models import (
 logger = logging.getLogger(__name__)
 
 
+def _run_simulation_worker(
+    ticker: str,
+    prices: list[float],
+    config: dict,
+) -> tuple[str, dict[str, Any] | None]:
+    """Picklable worker for ProcessPoolExecutor.
+
+    Args:
+        ticker: Stock ticker.
+        prices: List of closing prices.
+        config: Dict of simulation parameters from Settings.
+
+    Returns:
+        (ticker, simulation_result_dict or None)
+    """
+    from whaleback.analysis.simulation import run_monte_carlo
+    from whaleback.analysis.sim_models import SimModel
+
+    models = tuple(SimModel)  # all four models
+
+    weights = {
+        SimModel.GBM.value: config.get("weight_gbm", 0.25),
+        SimModel.GARCH.value: config.get("weight_garch", 0.30),
+        SimModel.HESTON.value: config.get("weight_heston", 0.20),
+        SimModel.MERTON.value: config.get("weight_merton", 0.25),
+    }
+
+    result = run_monte_carlo(
+        prices,
+        num_simulations=config.get("num_paths", 10000),
+        ticker=ticker,
+        models=models,
+        weights=weights,
+        garch_params={"p": config.get("garch_p", 1), "q": config.get("garch_q", 1)},
+        heston_params={
+            "kappa": config.get("heston_kappa", 2.0),
+            "theta": config.get("heston_theta", 0.04),
+            "xi": config.get("heston_xi", 0.3),
+            "rho": config.get("heston_rho", -0.7),
+        },
+        merton_params={
+            "lam": config.get("merton_lambda", 0.1),
+            "mu_j": config.get("merton_mu_j", -0.02),
+            "sigma_j": config.get("merton_sigma_j", 0.05),
+        },
+        max_sigma=config.get("max_sigma", 1.50),
+    )
+
+    if result is None:
+        return ticker, None
+
+    return ticker, {
+        "simulation_score": result["simulation_score"],
+        "simulation_grade": result["simulation_grade"],
+        "base_price": result["base_price"],
+        "mu": result["mu"],
+        "sigma": result["sigma"],
+        "num_simulations": result["num_simulations"],
+        "input_days_used": result["input_days_used"],
+        "horizons": result["horizons"],
+        "target_probs": result["target_probs"],
+        "model_breakdown": result.get("model_breakdown"),
+    }
+
+
 class AnalysisComputer:
     """Orchestrates analysis computation for all tickers on a given date."""
 
@@ -107,7 +173,6 @@ class AnalysisComputer:
             technical_rows: list[dict[str, Any]] = []
             risk_rows: list[dict[str, Any]] = []
             composite_rows: list[dict[str, Any]] = []
-            simulation_rows: list[dict[str, Any]] = []
             # Accumulated for sector flow: {ticker: [investor rows]}
             investor_data_acc: dict[str, list[dict[str, Any]]] = {}
             trading_values_acc: dict[str, float] = {}
@@ -169,10 +234,7 @@ class AnalysisComputer:
                     if risk_result:
                         risk_rows.append({"trade_date": target_date, "ticker": ticker, **risk_result})
 
-                    # --- Simulation ---
-                    sim_result = self._compute_simulation(session, ticker, target_date)
-                    if sim_result:
-                        simulation_rows.append({"trade_date": target_date, "ticker": ticker, **sim_result})
+                    # --- Simulation --- (moved to parallel phase below)
 
                     # --- Accumulate investor data for sector flow ---
                     inv_rows, avg_tv = self._load_investor_data_for_sector(
@@ -186,6 +248,9 @@ class AnalysisComputer:
                 except Exception as e:
                     logger.warning(f"Analysis failed for {ticker}: {e}")
                     continue
+
+            # --- Parallel Simulation Phase ---
+            simulation_rows = self._compute_simulations_parallel(session, tickers, target_date)
 
             # Compute RS percentiles (needs all RS values first)
             if trend_rows:
@@ -817,6 +882,84 @@ class AnalysisComputer:
             "horizons": sim_result["horizons"],
             "target_probs": sim_result["target_probs"],
         }
+
+    def _compute_simulations_parallel(
+        self, session: Session, tickers: dict[str, str], target_date: date
+    ) -> list[dict[str, Any]]:
+        """Run Monte Carlo simulations for all tickers using ProcessPoolExecutor."""
+        from datetime import timedelta
+
+        start_date = target_date - timedelta(days=400)
+
+        # Phase 1: Load all price data sequentially (DB I/O)
+        ticker_prices: dict[str, list[float]] = {}
+        for ticker in tickers:
+            result = session.execute(
+                select(DailyOHLCV.close)
+                .where(
+                    and_(
+                        DailyOHLCV.ticker == ticker,
+                        DailyOHLCV.trade_date.between(start_date, target_date),
+                    )
+                )
+                .order_by(DailyOHLCV.trade_date)
+            )
+            prices = [float(r.close) for r in result.all()]
+            if len(prices) >= self.settings.simulation_min_history_days:
+                ticker_prices[ticker] = prices
+
+        if not ticker_prices:
+            return []
+
+        # Build config dict (pickle-safe plain types)
+        config = {
+            "num_paths": self.settings.simulation_num_paths,
+            "max_sigma": self.settings.simulation_max_sigma,
+            "weight_gbm": self.settings.simulation_weight_gbm,
+            "weight_garch": self.settings.simulation_weight_garch,
+            "weight_heston": self.settings.simulation_weight_heston,
+            "weight_merton": self.settings.simulation_weight_merton,
+            "garch_p": self.settings.simulation_garch_p,
+            "garch_q": self.settings.simulation_garch_q,
+            "heston_kappa": self.settings.simulation_heston_kappa,
+            "heston_theta": self.settings.simulation_heston_theta,
+            "heston_xi": self.settings.simulation_heston_xi,
+            "heston_rho": self.settings.simulation_heston_rho,
+            "merton_lambda": self.settings.simulation_merton_lambda,
+            "merton_mu_j": self.settings.simulation_merton_mu_j,
+            "merton_sigma_j": self.settings.simulation_merton_sigma_j,
+        }
+
+        # Phase 2: Run simulations in parallel
+        simulation_rows: list[dict[str, Any]] = []
+        max_workers = min(self.settings.simulation_max_workers, len(ticker_prices))
+
+        logger.info(
+            "Running parallel simulations for %d tickers with %d workers",
+            len(ticker_prices), max_workers,
+        )
+
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_run_simulation_worker, ticker, prices, config): ticker
+                for ticker, prices in ticker_prices.items()
+            }
+
+            for future in as_completed(futures):
+                ticker = futures[future]
+                try:
+                    _, sim_result = future.result()
+                    if sim_result is not None:
+                        simulation_rows.append({
+                            "trade_date": target_date,
+                            "ticker": ticker,
+                            **sim_result,
+                        })
+                except Exception as e:
+                    logger.warning("Parallel simulation failed for %s: %s", ticker, e)
+
+        logger.info("Parallel simulations complete: %d results", len(simulation_rows))
+        return simulation_rows
 
     # ------------------------------------------------------------------
     # Persistence

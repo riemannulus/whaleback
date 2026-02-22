@@ -342,6 +342,17 @@ class SimulationHorizon(BaseModel):
     upside_prob: float | None = None
 
 
+class ModelScore(BaseModel):
+    model: str
+    score: float | None = None
+    weight: float
+
+
+class SimulationModelBreakdown(BaseModel):
+    model_scores: list[ModelScore] | None = None
+    ensemble_method: str | None = None
+
+
 class SimulationResult(BaseModel):
     ticker: str
     name: str | None = None
@@ -355,6 +366,7 @@ class SimulationResult(BaseModel):
     input_days_used: int | None = None
     horizons: dict[str, SimulationHorizon] | None = None
     target_probs: dict[str, dict[str, float]] | None = None
+    model_breakdown: SimulationModelBreakdown | None = None
 
 
 class SimulationTopItem(BaseModel):

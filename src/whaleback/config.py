@@ -52,6 +52,30 @@ class Settings(BaseSettings):
     simulation_min_history_days: int = 60
     simulation_max_sigma: float = 1.50
 
+    # Ensemble weights (sum = 1.0)
+    simulation_weight_gbm: float = 0.25
+    simulation_weight_garch: float = 0.30
+    simulation_weight_heston: float = 0.20
+    simulation_weight_merton: float = 0.25
+
+    # GARCH parameters
+    simulation_garch_p: int = 1
+    simulation_garch_q: int = 1
+
+    # Heston parameters
+    simulation_heston_kappa: float = 2.0
+    simulation_heston_theta: float = 0.04
+    simulation_heston_xi: float = 0.3
+    simulation_heston_rho: float = -0.7
+
+    # Merton parameters
+    simulation_merton_lambda: float = 0.1
+    simulation_merton_mu_j: float = -0.02
+    simulation_merton_sigma_j: float = 0.05
+
+    # Parallelization
+    simulation_max_workers: int = 4
+
     # Analysis scheduler
     analysis_schedule_hour: int = 19
     analysis_schedule_minute: int = 0

@@ -822,6 +822,7 @@ def _simulation_to_dict(s: AnalysisSimulationSnapshot) -> dict[str, Any]:
         "target_probs": s.target_probs,
         "expected_return_pct_6m": float(expected_return_pct_6m) if expected_return_pct_6m is not None else None,
         "upside_prob_3m": float(upside_prob_3m) if upside_prob_3m is not None else None,
+        "model_breakdown": s.model_breakdown,
     }
 
 

@@ -281,6 +281,7 @@ class AnalysisSimulationSnapshot(Base):
     input_days_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
     horizons: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     target_probs: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    model_breakdown: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
