@@ -46,12 +46,14 @@ def simulate_heston(
         logger.debug("Heston: insufficient data")
         return None
 
+    # Annualise drift and variance so all parameters are on the same scale
     daily_mu = float(np.mean(log_returns))
+    mu_annual = daily_mu * TRADING_DAYS_PER_YEAR
     dt = 1.0 / TRADING_DAYS_PER_YEAR
 
-    # Initial variance from recent data
+    # Initial variance: annualise daily variance to match theta scale
     recent_var = float(np.var(log_returns[-20:], ddof=1)) if len(log_returns) >= 20 else float(np.var(log_returns, ddof=1))
-    v0 = max(recent_var, 1e-8)
+    v0 = max(recent_var * TRADING_DAYS_PER_YEAR, 1e-8)
 
     max_horizon = max(horizons)
 
@@ -69,8 +71,8 @@ def simulate_heston(
         v_pos = np.maximum(v[:, t], 0)  # full truncation
         sqrt_v = np.sqrt(v_pos)
 
-        # Price process (log space)
-        log_s[:, t + 1] = log_s[:, t] + (daily_mu - 0.5 * v_pos) * dt + sqrt_v * np.sqrt(dt) * z1[:, t]
+        # Price process (log space) — all annualised quantities
+        log_s[:, t + 1] = log_s[:, t] + (mu_annual - 0.5 * v_pos) * dt + sqrt_v * np.sqrt(dt) * z1[:, t]
 
         # Variance process
         v[:, t + 1] = v[:, t] + kappa * (theta - v_pos) * dt + xi * sqrt_v * np.sqrt(dt) * z2[:, t]

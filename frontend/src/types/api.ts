@@ -305,6 +305,7 @@ export interface ModelScore {
 
 export interface SimulationModelBreakdown {
   model_scores: ModelScore[] | null;
+  model_weights: Record<string, number> | null;
   ensemble_method: string | null;
 }
 

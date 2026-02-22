@@ -217,6 +217,7 @@ def init_db():
         "ALTER TABLE analysis_whale_snapshot ADD COLUMN IF NOT EXISTS private_equity_consistency NUMERIC(4, 2)",
         "ALTER TABLE analysis_whale_snapshot ADD COLUMN IF NOT EXISTS other_corp_consistency NUMERIC(4, 2)",
         "ALTER TABLE analysis_composite_snapshot ADD COLUMN IF NOT EXISTS forecast_score NUMERIC(6, 2)",
+        "ALTER TABLE analysis_simulation_snapshot ADD COLUMN IF NOT EXISTS model_breakdown JSONB",
     ]
     with engine.begin() as conn:
         for stmt in add_column_statements:

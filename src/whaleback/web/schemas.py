@@ -350,6 +350,7 @@ class ModelScore(BaseModel):
 
 class SimulationModelBreakdown(BaseModel):
     model_scores: list[ModelScore] | None = None
+    model_weights: dict[str, float] | None = None
     ensemble_method: str | None = None
 
 

@@ -177,7 +177,7 @@ class TestSeedStability:
         r2 = run_monte_carlo(realistic_prices, num_simulations=500, ticker="005930",
                              models=(SimModel.GBM,))
         assert r1["simulation_score"] == r2["simulation_score"]
-        assert r1["horizons"][126]["p50"] == r2["horizons"][126]["p50"]
+        assert r1["horizons"]["126"]["p50"] == r2["horizons"]["126"]["p50"]
 
     def test_different_tickers_different_results(self, realistic_prices):
         r1 = run_monte_carlo(realistic_prices, num_simulations=500, ticker="005930",
@@ -185,4 +185,4 @@ class TestSeedStability:
         r2 = run_monte_carlo(realistic_prices, num_simulations=500, ticker="035420",
                              models=(SimModel.GBM,))
         # Different seeds should produce different median prices (very unlikely to match)
-        assert r1["horizons"][126]["p50"] != r2["horizons"][126]["p50"]
+        assert r1["horizons"]["126"]["p50"] != r2["horizons"]["126"]["p50"]

@@ -60,7 +60,7 @@ def combine_ensemble(
     for i, model_name in enumerate(models_list):
         if i == len(models_list) - 1:
             # Last model gets remainder to ensure exact total
-            sample_counts[model_name] = total_samples - allocated
+            sample_counts[model_name] = max(0, total_samples - allocated)
         else:
             n = int(round(available[model_name] * total_samples))
             sample_counts[model_name] = n

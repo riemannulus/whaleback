@@ -151,20 +151,23 @@ def run_monte_carlo(
     heston_p = heston_params or {}
     merton_p = merton_params or {}
 
-    # --- Run each model -------------------------------------------------
+    # --- Run each model (independent child RNGs for isolation) ----------
     model_results = {}
 
     for model in models:
+        # Spawn independent child RNG so adding/removing models
+        # does not change other models' results
+        child_rng = np.random.default_rng(rng.integers(2**63))
         try:
             if model == SimModel.GBM:
                 result = simulate_gbm(
                     log_returns, base_price, num_simulations,
-                    horizons, rng, max_sigma=max_sigma,
+                    horizons, child_rng, max_sigma=max_sigma,
                 )
             elif model == SimModel.GARCH:
                 result = simulate_garch(
                     log_returns, base_price, num_simulations,
-                    horizons, rng,
+                    horizons, child_rng,
                     p=garch_p.get("p", 1),
                     q=garch_p.get("q", 1),
                     max_sigma=max_sigma,
@@ -172,7 +175,7 @@ def run_monte_carlo(
             elif model == SimModel.HESTON:
                 result = simulate_heston(
                     log_returns, base_price, num_simulations,
-                    horizons, rng,
+                    horizons, child_rng,
                     kappa=heston_p.get("kappa", 2.0),
                     theta=heston_p.get("theta", 0.04),
                     xi=heston_p.get("xi", 0.3),
@@ -181,7 +184,7 @@ def run_monte_carlo(
             elif model == SimModel.MERTON:
                 result = simulate_merton(
                     log_returns, base_price, num_simulations,
-                    horizons, rng,
+                    horizons, child_rng,
                     lam=merton_p.get("lam", 0.1),
                     mu_j=merton_p.get("mu_j", -0.02),
                     sigma_j=merton_p.get("sigma_j", 0.05),
@@ -222,7 +225,7 @@ def run_monte_carlo(
             "sigma": round(sigma, 6),
             "num_simulations": num_simulations,
             "input_days_used": len(clean_prices),
-            "horizons": horizons_result,
+            "horizons": _stringify_keys(horizons_result),
             "target_probs": target_probs,
             "model_breakdown": None,
         }
@@ -244,6 +247,13 @@ def run_monte_carlo(
     ensemble_horizons = ensemble["horizons"]
     score_result = compute_simulation_score(ensemble_horizons)
 
+    # Stringify target_probs horizon keys from ensemble
+    raw_target_probs = ensemble.get("target_probs", {})
+    str_target_probs = {
+        mult: {str(h): v for h, v in hprobs.items()}
+        for mult, hprobs in raw_target_probs.items()
+    }
+
     return {
         "simulation_score": score_result["score"],
         "simulation_grade": score_result["grade"],
@@ -252,25 +262,30 @@ def run_monte_carlo(
         "sigma": round(sigma, 6),
         "num_simulations": num_simulations,
         "input_days_used": len(clean_prices),
-        "horizons": ensemble_horizons,
-        "target_probs": ensemble.get("target_probs", {}),
+        "horizons": _stringify_keys(ensemble_horizons),
+        "target_probs": str_target_probs,
         "model_breakdown": ensemble.get("model_breakdown"),
     }
+
+
+def _stringify_keys(d: dict) -> dict[str, Any]:
+    """Convert int dict keys to strings for JSONB compatibility."""
+    return {str(k): v for k, v in d.items()}
 
 
 def _compute_target_probs(
     terminal_prices: dict[int, np.ndarray],
     base_price: int,
     target_multipliers: tuple[float, ...],
-) -> dict[str, dict[int, float]]:
+) -> dict[str, dict[str, float]]:
     """Compute target-price probabilities from terminal price arrays."""
-    target_probs: dict[str, dict[int, float]] = {}
+    target_probs: dict[str, dict[str, float]] = {}
     for mult in target_multipliers:
         target_price = base_price * mult
         key = str(mult)
         target_probs[key] = {}
         for h, terminal in terminal_prices.items():
-            target_probs[key][h] = round(float(np.mean(terminal > target_price)), 4)
+            target_probs[key][str(h)] = round(float(np.mean(terminal > target_price)), 4)
     return target_probs
 
 
@@ -292,8 +307,9 @@ def compute_simulation_score(
     Returns:
         {"score": float | None, "grade": str | None}
     """
-    h126 = horizons_result.get(126)
-    h63 = horizons_result.get(63)
+    # Support both int keys (pre-DB) and string keys (post-JSONB)
+    h126 = horizons_result.get(126) or horizons_result.get("126")
+    h63 = horizons_result.get(63) or horizons_result.get("63")
 
     if h126 is None or h63 is None:
         return {"score": None, "grade": None}
