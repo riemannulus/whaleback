@@ -29,9 +29,10 @@ function SectionHeader({ title, href }: { title: string; href: string }) {
 
 const investorTypeLabels: Record<string, string> = {
   institution_net: "기관",
-  foreigner_net: "외국인",
-  individual_net: "개인",
-  program_net: "프로그램",
+  foreign_net: "외국인",
+  pension_net: "연기금",
+  private_equity_net: "사모",
+  other_corp_net: "기타법인",
 };
 
 function MiniHeatmapChart({ heatmap }: { heatmap: SectorFlowHeatmapData }) {
@@ -47,14 +48,14 @@ function MiniHeatmapChart({ heatmap }: { heatmap: SectorFlowHeatmapData }) {
   const values = data.map(([, , v]) => v);
   const minVal = Math.min(...values, 0);
   const maxVal = Math.max(...values, 0);
-  const yLabels = investor_types.map((t) => investorTypeLabels[t] || t);
+  const investorLabels = investor_types.map((t) => investorTypeLabels[t] || t);
 
   const option = {
     tooltip: {
       position: "top" as const,
       formatter: (params: any) => {
+        const investorLabel = investorLabels[params.data[0]];
         const sector = sectors[params.data[1]];
-        const investorLabel = yLabels[params.data[0]];
         const val = params.data[2];
         return `${sector}<br/>${investorLabel}: ${(val * 100).toFixed(1)}%`;
       },
@@ -62,14 +63,14 @@ function MiniHeatmapChart({ heatmap }: { heatmap: SectorFlowHeatmapData }) {
     grid: { left: "14%", right: "4%", top: "4%", bottom: "22%" },
     xAxis: {
       type: "category" as const,
-      data: sectors,
-      axisLabel: { fontSize: 9, rotate: 45, interval: 0 },
+      data: investorLabels,
+      axisLabel: { fontSize: 10 },
       splitArea: { show: true },
     },
     yAxis: {
       type: "category" as const,
-      data: yLabels,
-      axisLabel: { fontSize: 10 },
+      data: sectors,
+      axisLabel: { fontSize: 9, interval: 0 },
       splitArea: { show: true },
     },
     visualMap: {
