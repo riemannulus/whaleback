@@ -14,6 +14,7 @@ from .gbm import _compute_horizon_stats
 logger = logging.getLogger(__name__)
 
 TRADING_DAYS_PER_YEAR = 252
+MAX_DAILY_MU = 1.0 / TRADING_DAYS_PER_YEAR  # Cap annual drift at ±100%
 
 
 def simulate_garch(
@@ -42,6 +43,7 @@ def simulate_garch(
     # Recover arithmetic drift from sample log returns (undo implicit Ito correction).
     # E[log_ret] = (μ_arith − ½σ²_hist)·dt  →  μ_arith_daily = daily_mu + ½σ²_hist
     mu_arith_daily = daily_mu + 0.5 * daily_sigma_hist**2
+    mu_arith_daily = float(np.clip(mu_arith_daily, -MAX_DAILY_MU, MAX_DAILY_MU))
     mu_arith_daily += drift_adj_daily
 
     max_daily_sigma = max_sigma / np.sqrt(TRADING_DAYS_PER_YEAR)

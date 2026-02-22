@@ -9,6 +9,7 @@ from . import HorizonStats, ModelResult
 logger = logging.getLogger(__name__)
 
 TRADING_DAYS_PER_YEAR = 252
+MAX_DAILY_MU = 1.0 / TRADING_DAYS_PER_YEAR  # Cap annual drift at ±100%
 
 HORIZON_LABELS = {
     21: "1개월",
@@ -62,6 +63,7 @@ def simulate_gbm(
     # then re-apply Ito with (possibly capped) volatility for a consistent pair.
     # E[log_ret] = (μ_arith − ½σ²_hist)·dt  →  μ_arith_daily = daily_mu + ½σ²_hist
     mu_arith_daily = daily_mu + 0.5 * daily_sigma**2
+    mu_arith_daily = float(np.clip(mu_arith_daily, -MAX_DAILY_MU, MAX_DAILY_MU))
     mu_arith_daily += drift_adj_daily
     daily_vol *= vol_multiplier
     daily_drift = mu_arith_daily - 0.5 * daily_vol**2

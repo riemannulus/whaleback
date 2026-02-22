@@ -29,6 +29,7 @@ DEFAULT_CONFIDENCE_LEVELS = (0.05, 0.25, 0.50, 0.75, 0.95)
 DEFAULT_TARGET_MULTIPLIERS = (1.1, 1.2, 1.5)
 MIN_HISTORY_DAYS = 60
 MAX_ANNUALIZED_SIGMA = 1.50
+MAX_ANNUALIZED_MU = 1.00  # Cap annual drift at 100%
 TRADING_DAYS_PER_YEAR = 252
 
 HORIZON_LABELS = {
@@ -128,6 +129,7 @@ def run_monte_carlo(
     mu = daily_mu * TRADING_DAYS_PER_YEAR
     sigma = daily_sigma * np.sqrt(TRADING_DAYS_PER_YEAR)
 
+    mu = float(np.clip(mu, -MAX_ANNUALIZED_MU, MAX_ANNUALIZED_MU))
     if sigma > max_sigma:
         sigma = max_sigma
     if sigma == 0.0:

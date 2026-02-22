@@ -16,6 +16,7 @@ from .gbm import _compute_horizon_stats
 logger = logging.getLogger(__name__)
 
 TRADING_DAYS_PER_YEAR = 252
+MAX_ANNUAL_MU = 1.0  # Cap annual drift at ±100%
 
 
 def simulate_heston(
@@ -77,6 +78,7 @@ def simulate_heston(
     # Then use it with the stochastic variance V_t for the correct single Ito correction.
     # E[log_ret] = (μ_arith − ½σ²_hist)·dt  →  μ_arith = (daily_mu + ½σ²_hist) × 252
     mu_arith_annual = (daily_mu + 0.5 * daily_sigma**2) * TRADING_DAYS_PER_YEAR
+    mu_arith_annual = float(np.clip(mu_arith_annual, -MAX_ANNUAL_MU, MAX_ANNUAL_MU))
     mu_arith_annual += drift_adj_annual
 
     # Initial variance: annualise daily variance to match theta scale
