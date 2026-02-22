@@ -35,6 +35,12 @@ def simulate_garch(
         return None
 
     daily_mu = float(np.mean(log_returns))
+    daily_sigma_hist = float(np.std(log_returns, ddof=1))
+
+    # Recover arithmetic drift from sample log returns (undo implicit Ito correction).
+    # E[log_ret] = (μ_arith − ½σ²_hist)·dt  →  μ_arith_daily = daily_mu + ½σ²_hist
+    mu_arith_daily = daily_mu + 0.5 * daily_sigma_hist**2
+
     max_daily_sigma = max_sigma / np.sqrt(TRADING_DAYS_PER_YEAR)
     max_horizon = max(horizons)
 
@@ -66,7 +72,8 @@ def simulate_garch(
 
         # Broadcast: (num_simulations, h)
         z = rng.standard_normal((num_simulations, h))
-        daily_log_ret = (daily_mu - 0.5 * sigma_path**2) + sigma_path * z
+        # Use arithmetic drift with time-varying Ito correction from GARCH volatility
+        daily_log_ret = (mu_arith_daily - 0.5 * sigma_path**2) + sigma_path * z
 
         cumulative = np.cumsum(daily_log_ret, axis=1)
         terminal = base_price * np.exp(cumulative[:, -1])

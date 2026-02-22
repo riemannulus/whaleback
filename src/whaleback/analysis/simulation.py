@@ -221,8 +221,8 @@ def run_monte_carlo(
             "simulation_score": score_result["score"],
             "simulation_grade": score_result["grade"],
             "base_price": base_price,
-            "mu": round(mu, 6),
-            "sigma": round(sigma, 6),
+            "mu": float(round(mu, 6)),
+            "sigma": float(round(sigma, 6)),
             "num_simulations": num_simulations,
             "input_days_used": len(clean_prices),
             "horizons": _stringify_keys(horizons_result),
@@ -258,8 +258,8 @@ def run_monte_carlo(
         "simulation_score": score_result["score"],
         "simulation_grade": score_result["grade"],
         "base_price": base_price,
-        "mu": round(mu, 6),
-        "sigma": round(sigma, 6),
+        "mu": float(round(mu, 6)),
+        "sigma": float(round(sigma, 6)),
         "num_simulations": num_simulations,
         "input_days_used": len(clean_prices),
         "horizons": _stringify_keys(ensemble_horizons),
@@ -300,7 +300,7 @@ def compute_simulation_score(
     """Derive a 0-100 simulation score from horizon statistics.
 
     Weights:
-        - 40 %  median return at 6 months (126d)
+        - 40 %  mean return at 6 months (126d)
         - 35 %  upside probability at 3 months (63d)
         - 25 %  negative VaR (5 %) at 3 months (63d)
 

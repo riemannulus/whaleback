@@ -42,7 +42,6 @@ def simulate_gbm(
     daily_mu = float(np.mean(log_returns))
     daily_sigma = float(np.std(log_returns, ddof=1))
 
-    mu = daily_mu * TRADING_DAYS_PER_YEAR
     sigma = daily_sigma * np.sqrt(TRADING_DAYS_PER_YEAR)
 
     if sigma > max_sigma:
@@ -53,8 +52,13 @@ def simulate_gbm(
         logger.debug("GBM: zero volatility, skipping")
         return None
 
-    daily_drift = mu / TRADING_DAYS_PER_YEAR - (sigma**2) / (2 * TRADING_DAYS_PER_YEAR)
     daily_vol = sigma / np.sqrt(TRADING_DAYS_PER_YEAR)
+
+    # Recover arithmetic drift from sample log returns (undo implicit Ito),
+    # then re-apply Ito with (possibly capped) volatility for a consistent pair.
+    # E[log_ret] = (μ_arith − ½σ²_hist)·dt  →  μ_arith_daily = daily_mu + ½σ²_hist
+    mu_arith_daily = daily_mu + 0.5 * daily_sigma**2
+    daily_drift = mu_arith_daily - 0.5 * daily_vol**2
 
     terminal_prices: dict[int, np.ndarray] = {}
     horizons_result: dict[int, HorizonStats] = {}

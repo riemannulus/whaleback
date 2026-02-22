@@ -46,15 +46,19 @@ def simulate_merton(
         return None
 
     daily_mu = float(np.mean(log_returns))
-    daily_sigma = float(np.std(log_returns, ddof=1))
+    daily_sigma_orig = float(np.std(log_returns, ddof=1))
 
-    sigma = daily_sigma * np.sqrt(TRADING_DAYS_PER_YEAR)
+    sigma = daily_sigma_orig * np.sqrt(TRADING_DAYS_PER_YEAR)
     if sigma > max_sigma:
         sigma = max_sigma
-        daily_sigma = sigma / np.sqrt(TRADING_DAYS_PER_YEAR)
+    daily_sigma = sigma / np.sqrt(TRADING_DAYS_PER_YEAR)
 
     if daily_sigma == 0.0:
         return None
+
+    # Recover arithmetic drift from sample log returns (undo implicit Ito correction).
+    # E[log_ret] = (μ_arith − ½σ²_hist)·dt  →  μ_arith_daily = daily_mu + ½σ²_hist
+    mu_arith_daily = daily_mu + 0.5 * daily_sigma_orig**2
 
     # Daily jump intensity
     lam_daily = lam / TRADING_DAYS_PER_YEAR
@@ -62,7 +66,7 @@ def simulate_merton(
     # Drift compensation for jump component
     # k = E[J - 1] = exp(mu_j + sigma_j^2/2) - 1
     k = np.exp(mu_j + 0.5 * sigma_j**2) - 1
-    drift_comp = daily_mu - lam_daily * k
+    drift_comp = mu_arith_daily - lam_daily * k
 
     max_horizon = max(horizons)
 
