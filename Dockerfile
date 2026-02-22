@@ -15,6 +15,9 @@ COPY alembic.ini ./
 RUN pip install --no-cache-dir ".[news]" \
     --extra-index-url https://download.pytorch.org/whl/cpu
 
+# Pre-download BERT model during build
+RUN python -c "from transformers import pipeline; pipeline('text-classification', model='FISA-conclave/klue-roberta-news-sentiment', top_k=None, truncation=True, max_length=512)"
+
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -24,6 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /root/.cache/huggingface /root/.cache/huggingface
 COPY --from=builder /usr/local/bin/whaleback /usr/local/bin/whaleback
 COPY --from=builder /usr/local/bin/uvicorn /usr/local/bin/uvicorn
 COPY --from=builder /usr/local/bin/alembic /usr/local/bin/alembic
