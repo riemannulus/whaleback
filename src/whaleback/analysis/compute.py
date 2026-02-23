@@ -1034,26 +1034,28 @@ class AnalysisComputer:
                 sum(len(v) for v in ticker_articles.values()),
             )
 
-            # Phase 2b: Score articles per ticker with BERT + LLM
+            # Phase 2b: Score ALL articles globally (single BERT batch + single LLM batch)
+            # This ensures LLM escalation articles are aggregated across tickers,
+            # hitting the Batch API threshold (20+) for 50% cost savings.
+            all_articles_flat: list[dict] = []
+            for articles in ticker_articles.values():
+                all_articles_flat.extend(articles)
+
+            logger.info("Scoring %d articles globally", len(all_articles_flat))
+            all_articles_list = await score_articles(
+                all_articles_flat,
+                confidence_threshold=settings.news_bert_confidence_threshold,
+                anthropic_api_key=settings.news_anthropic_api_key,
+            )
+
+            # Split scored articles back by ticker
             ticker_scored: dict[str, list[dict]] = {}
-            for t, articles in ticker_articles.items():
-                try:
-                    scored = await score_articles(
-                        articles,
-                        confidence_threshold=settings.news_bert_confidence_threshold,
-                        anthropic_api_key=settings.news_anthropic_api_key,
-                    )
-                    if scored:
-                        ticker_scored[t] = scored
-                except Exception as e:
-                    logger.warning("Article scoring failed for %s: %s", t, e)
+            for article in all_articles_list:
+                t = article.get("ticker", "")
+                if t:
+                    ticker_scored.setdefault(t, []).append(article)
 
-            # Build all_articles from scored results (sentiment fields guaranteed)
-            all_articles_list: list[dict] = []
-            for scored_articles in ticker_scored.values():
-                all_articles_list.extend(scored_articles)
-
-            logger.info("Scored articles for %d tickers", len(ticker_scored))
+            logger.info("Scored %d articles for %d tickers", len(all_articles_list), len(ticker_scored))
             return ticker_scored, all_articles_list
 
         # Run async pipeline from sync context
