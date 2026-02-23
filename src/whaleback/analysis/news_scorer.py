@@ -126,32 +126,9 @@ def score_article_bert(text: str) -> dict[str, Any] | None:
         return None
 
 
-async def score_article_llm(
-    text: str,
-    api_key: str,
-    ticker: str = "",
-) -> dict[str, Any] | None:
-    """Score a single article using Claude Haiku (LLM escalation).
-
-    Used when BERT confidence is below threshold.
-
-    Args:
-        text: Article title + description.
-        api_key: Anthropic API key.
-        ticker: Stock ticker for context.
-
-    Returns:
-        {sentiment_raw, sentiment_label, sentiment_confidence, scoring_method}
-    """
-    if not api_key:
-        return None
-
-    try:
-        import anthropic
-
-        client = _get_anthropic_client(api_key)
-
-        prompt = f"""주식 종목 {ticker}에 대한 다음 뉴스 기사의 감성을 분석해주세요.
+def _build_sentiment_prompt(text: str, ticker: str) -> str:
+    """Build sentiment analysis prompt for LLM."""
+    return f"""주식 종목 {ticker}에 대한 다음 뉴스 기사의 감성을 분석해주세요.
 
 기사: {text[:1000]}
 
@@ -160,47 +137,168 @@ sentiment: [positive/neutral/negative]
 score: [0.0~1.0 사이의 확신도]
 reason: [한 줄 이유]"""
 
+
+def _parse_llm_response(response_text: str) -> dict[str, Any]:
+    """Parse structured LLM sentiment response."""
+    sentiment_label = "neutral"
+    confidence = 0.5
+    for line in response_text.split("\n"):
+        line = line.strip().lower()
+        if line.startswith("sentiment:"):
+            val = line.split(":", 1)[1].strip()
+            if "positive" in val:
+                sentiment_label = "positive"
+            elif "negative" in val:
+                sentiment_label = "negative"
+            else:
+                sentiment_label = "neutral"
+        elif line.startswith("score:"):
+            try:
+                confidence = float(line.split(":", 1)[1].strip())
+            except ValueError:
+                confidence = 0.5
+
+    score_map = {"positive": 1.0, "neutral": 0.0, "negative": -1.0}
+    raw_base = score_map.get(sentiment_label, 0.0)
+    sentiment_raw = raw_base * confidence
+
+    return {
+        "sentiment_raw": round(sentiment_raw, 4),
+        "sentiment_label": sentiment_label,
+        "sentiment_confidence": round(confidence, 3),
+        "scoring_method": "llm",
+    }
+
+
+async def score_article_llm(
+    text: str,
+    api_key: str,
+    ticker: str = "",
+) -> dict[str, Any] | None:
+    """Score a single article using Claude Haiku (LLM escalation).
+
+    Used when BERT confidence is below threshold.
+    """
+    if not api_key:
+        return None
+
+    try:
+        client = _get_anthropic_client(api_key)
         response = await client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=200,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": _build_sentiment_prompt(text, ticker)}],
         )
-
-        response_text = response.content[0].text.strip()
-
-        # Parse structured response
-        sentiment_label = "neutral"
-        confidence = 0.5
-        for line in response_text.split("\n"):
-            line = line.strip().lower()
-            if line.startswith("sentiment:"):
-                val = line.split(":", 1)[1].strip()
-                if "positive" in val:
-                    sentiment_label = "positive"
-                elif "negative" in val:
-                    sentiment_label = "negative"
-                else:
-                    sentiment_label = "neutral"
-            elif line.startswith("score:"):
-                try:
-                    confidence = float(line.split(":", 1)[1].strip())
-                except ValueError:
-                    confidence = 0.5
-
-        score_map = {"positive": 1.0, "neutral": 0.0, "negative": -1.0}
-        raw_base = score_map.get(sentiment_label, 0.0)
-        sentiment_raw = raw_base * confidence
-
-        return {
-            "sentiment_raw": round(sentiment_raw, 4),
-            "sentiment_label": sentiment_label,
-            "sentiment_confidence": round(confidence, 3),
-            "scoring_method": "llm",
-        }
+        return _parse_llm_response(response.content[0].text.strip())
 
     except Exception as e:
         logger.warning("LLM scoring failed: %s", e)
         return None
+
+
+# Minimum articles to use Batch API (below this, concurrent calls are faster)
+_BATCH_API_THRESHOLD = 20
+
+
+async def _score_articles_batch(
+    texts: list[str],
+    llm_pending: list[tuple[int, int, str]],
+    api_key: str,
+    poll_interval: float = 10.0,
+    max_wait: float = 1800.0,
+) -> dict[int, dict[str, Any]]:
+    """Score articles using Anthropic Message Batches API (50% cost savings).
+
+    Submits all pending articles as a single batch, polls for completion,
+    and streams results back mapped by scored_idx.
+
+    Args:
+        texts: All article texts (indexed by text_idx).
+        llm_pending: List of (scored_idx, text_idx, ticker) tuples.
+        api_key: Anthropic API key.
+        poll_interval: Seconds between status polls.
+        max_wait: Maximum seconds to wait for batch completion.
+
+    Returns:
+        Dict mapping scored_idx -> sentiment result dict.
+    """
+    import asyncio
+    from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
+    from anthropic.types.messages.batch_create_params import Request
+
+    client = _get_anthropic_client(api_key)
+
+    # Build batch requests with custom_id mapping
+    requests: list[Request] = []
+    id_map: dict[str, int] = {}  # custom_id -> scored_idx
+
+    for scored_idx, text_idx, ticker in llm_pending:
+        cid = f"s{scored_idx}"
+        id_map[cid] = scored_idx
+        requests.append(Request(
+            custom_id=cid,
+            params=MessageCreateParamsNonStreaming(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=200,
+                messages=[{
+                    "role": "user",
+                    "content": _build_sentiment_prompt(texts[text_idx], ticker),
+                }],
+            ),
+        ))
+
+    # Submit batch
+    batch = await client.messages.batches.create(requests=requests)
+    logger.info("Batch API submitted: %s (%d requests, 50%% cost)", batch.id, len(requests))
+
+    # Poll until completion
+    elapsed = 0.0
+    while elapsed < max_wait:
+        batch = await client.messages.batches.retrieve(batch.id)
+        if batch.processing_status == "ended":
+            break
+        c = batch.request_counts
+        logger.info(
+            "Batch %s: processing=%d succeeded=%d errored=%d",
+            batch.id, c.processing, c.succeeded, c.errored,
+        )
+        await asyncio.sleep(poll_interval)
+        elapsed += poll_interval
+    else:
+        logger.warning("Batch %s timed out after %.0fs", batch.id, max_wait)
+        return {}
+
+    logger.info(
+        "Batch %s ended: succeeded=%d errored=%d canceled=%d expired=%d",
+        batch.id,
+        batch.request_counts.succeeded,
+        batch.request_counts.errored,
+        batch.request_counts.canceled,
+        batch.request_counts.expired,
+    )
+
+    # Stream results — handle both sync and async iterators from SDK
+    results: dict[int, dict[str, Any]] = {}
+    result_stream = client.messages.batches.results(batch.id)
+
+    if hasattr(result_stream, "__aiter__"):
+        async for item in result_stream:
+            scored_idx = id_map.get(item.custom_id)
+            if scored_idx is not None and item.result.type == "succeeded":
+                text = item.result.message.content[0].text.strip()
+                results[scored_idx] = _parse_llm_response(text)
+            elif scored_idx is not None:
+                logger.warning("Batch item %s: %s", item.custom_id, item.result.type)
+    else:
+        for item in result_stream:
+            scored_idx = id_map.get(item.custom_id)
+            if scored_idx is not None and item.result.type == "succeeded":
+                text = item.result.message.content[0].text.strip()
+                results[scored_idx] = _parse_llm_response(text)
+            elif scored_idx is not None:
+                logger.warning("Batch item %s: %s", item.custom_id, item.result.type)
+
+    return results
 
 
 async def score_articles(
@@ -315,36 +413,55 @@ async def score_articles(
                 "scoring_method": "fallback",
             })
 
-    # Batch LLM escalation with concurrency limit
+    # Stage 2: LLM escalation (Batch API for large sets, concurrent for small)
     if llm_pending:
         import asyncio
 
-        sem = asyncio.Semaphore(10)  # max 10 concurrent LLM calls
-        logger.info("LLM escalation: %d articles (concurrency=10)", len(llm_pending))
+        llm_results: dict[int, dict[str, Any]] = {}
 
-        async def _llm_one(scored_idx: int, text_idx: int, ticker: str):
-            async with sem:
-                return scored_idx, await score_article_llm(
-                    texts[text_idx], anthropic_api_key, ticker
+        if len(llm_pending) >= _BATCH_API_THRESHOLD:
+            # Use Message Batches API (50% cost savings)
+            try:
+                llm_results = await _score_articles_batch(
+                    texts, llm_pending, anthropic_api_key,
                 )
+                logger.info(
+                    "Batch API: %d/%d succeeded", len(llm_results), len(llm_pending),
+                )
+            except Exception as e:
+                logger.warning("Batch API failed, falling back to concurrent: %s", e)
 
-        tasks = [_llm_one(si, ti, tk) for si, ti, tk in llm_pending]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Concurrent fallback for remaining items (small batches or batch failures)
+        remaining = [p for p in llm_pending if p[0] not in llm_results]
+        if remaining:
+            sem = asyncio.Semaphore(10)
+            logger.info("LLM concurrent escalation: %d articles", len(remaining))
 
-        for result in results:
-            if isinstance(result, Exception):
-                logger.warning("LLM escalation error: %s", result)
-                continue
-            scored_idx, llm_result = result
+            async def _llm_one(scored_idx: int, text_idx: int, ticker: str):
+                async with sem:
+                    return scored_idx, await score_article_llm(
+                        texts[text_idx], anthropic_api_key, ticker
+                    )
+
+            tasks = [_llm_one(si, ti, tk) for si, ti, tk in remaining]
+            concurrent_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for result in concurrent_results:
+                if isinstance(result, Exception):
+                    logger.warning("LLM escalation error: %s", result)
+                    continue
+                scored_idx, llm_result = result
+                if llm_result:
+                    llm_results[scored_idx] = llm_result
+
+        # Apply all LLM results to articles, fallback to BERT or neutral
+        for scored_idx, text_idx, _ in llm_pending:
             article = scored[scored_idx]
+            llm_result = llm_results.get(scored_idx)
             if llm_result:
                 article.update(llm_result)
             else:
-                # Fallback to BERT result
-                bert_idx = next(
-                    ti for si, ti, _ in llm_pending if si == scored_idx
-                )
-                bert_result = bert_results[bert_idx]
+                bert_result = bert_results[text_idx]
                 if bert_result:
                     article.update(bert_result)
                 else:
