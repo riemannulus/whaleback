@@ -1,3 +1,22 @@
+x-common-env: &common-env
+  WB_DB_HOST: db
+  WB_DB_PORT: 5432
+  WB_DB_NAME: ${WB_DB_NAME:-whaleback}
+  WB_DB_USER: ${WB_DB_USER:-whaleback}
+  WB_DB_PASSWORD: ${WB_DB_PASSWORD:-changeme}
+  WB_REDIS_URL: redis://redis:6379/0
+  WB_NEWS_SENTIMENT_ENABLED: ${WB_NEWS_SENTIMENT_ENABLED:-false}
+  WB_NEWS_NAVER_CLIENT_ID: ${WB_NEWS_NAVER_CLIENT_ID:-}
+  WB_NEWS_NAVER_CLIENT_SECRET: ${WB_NEWS_NAVER_CLIENT_SECRET:-}
+  WB_NEWS_DART_API_KEY: ${WB_NEWS_DART_API_KEY:-}
+  WB_NEWS_ANTHROPIC_API_KEY: ${WB_NEWS_ANTHROPIC_API_KEY:-}
+
+x-depends-db: &depends-db
+  db:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+
 services:
   db:
     image: postgres:16-alpine
@@ -34,30 +53,16 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      WB_DB_HOST: db
-      WB_DB_PORT: 5432
-      WB_DB_NAME: ${WB_DB_NAME:-whaleback}
-      WB_DB_USER: ${WB_DB_USER:-whaleback}
-      WB_DB_PASSWORD: ${WB_DB_PASSWORD:-changeme}
-      WB_REDIS_URL: redis://redis:6379/0
+      <<: *common-env
       WB_API_HOST: "0.0.0.0"
       WB_API_PORT: 8000
       WB_CORS_ORIGINS: '["http://localhost:3000"]'
-      WB_NEWS_SENTIMENT_ENABLED: ${WB_NEWS_SENTIMENT_ENABLED:-false}
-      WB_NEWS_NAVER_CLIENT_ID: ${WB_NEWS_NAVER_CLIENT_ID:-}
-      WB_NEWS_NAVER_CLIENT_SECRET: ${WB_NEWS_NAVER_CLIENT_SECRET:-}
-      WB_NEWS_DART_API_KEY: ${WB_NEWS_DART_API_KEY:-}
-      WB_NEWS_ANTHROPIC_API_KEY: ${WB_NEWS_ANTHROPIC_API_KEY:-}
     volumes:
       - ./logs:/app/logs
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    depends_on: *depends-db
     networks:
-      - db        # DB/Redis 접근
-      - app       # frontend와 통신 + 인터넷 (KRX API)
+      - db
+      - app
     restart: unless-stopped
 
   frontend:
@@ -71,27 +76,26 @@ services:
     depends_on:
       - backend
     networks:
-      - app       # backend와 통신 + 외부 포트 바인딩
+      - app
     restart: unless-stopped
 
-  init:
+  scheduler:
     build:
       context: .
       dockerfile: Dockerfile
-    command: ["init"]
+    command: ["whaleback", "schedule"]
     environment:
-      WB_DB_HOST: db
-      WB_DB_PORT: 5432
-      WB_DB_NAME: ${WB_DB_NAME:-whaleback}
-      WB_DB_USER: ${WB_DB_USER:-whaleback}
-      WB_DB_PASSWORD: ${WB_DB_PASSWORD:-changeme}
-    depends_on:
-      db:
-        condition: service_healthy
+      <<: *common-env
+      WB_SCHEDULE_HOUR: ${WB_SCHEDULE_HOUR:-18}
+      WB_SCHEDULE_MINUTE: ${WB_SCHEDULE_MINUTE:-30}
+      WB_ANALYSIS_SCHEDULE_HOUR: ${WB_ANALYSIS_SCHEDULE_HOUR:-19}
+      WB_ANALYSIS_SCHEDULE_MINUTE: ${WB_ANALYSIS_SCHEDULE_MINUTE:-0}
+      WB_TIMEZONE: Asia/Seoul
+    depends_on: *depends-db
     networks:
       - db
-    profiles:
-      - setup
+      - app
+    restart: unless-stopped
 
   tunnel:
     image: cloudflare/cloudflared:latest
@@ -104,37 +108,26 @@ services:
       - app
     restart: always
 
-  scheduler:
+  # One-shot CLI runner for admin tasks (does not start with `docker compose up`)
+  # Usage:
+  #   docker compose run --rm whaleback init
+  #   docker compose run --rm whaleback compute-analysis -d 20260220
+  #   docker compose run --rm whaleback run-once -d 20260220
+  #   docker compose run --rm whaleback backfill -s 20260101 -e 20260220
+  whaleback:
     build:
       context: .
       dockerfile: Dockerfile
-    command: ["whaleback", "schedule"]
     environment:
-      WB_DB_HOST: db
-      WB_DB_PORT: 5432
-      WB_DB_NAME: ${WB_DB_NAME:-whaleback}
-      WB_DB_USER: ${WB_DB_USER:-whaleback}
-      WB_DB_PASSWORD: ${WB_DB_PASSWORD:-changeme}
-      WB_REDIS_URL: redis://redis:6379/0
-      WB_SCHEDULE_HOUR: ${WB_SCHEDULE_HOUR:-18}
-      WB_SCHEDULE_MINUTE: ${WB_SCHEDULE_MINUTE:-30}
-      WB_ANALYSIS_SCHEDULE_HOUR: ${WB_ANALYSIS_SCHEDULE_HOUR:-19}
-      WB_ANALYSIS_SCHEDULE_MINUTE: ${WB_ANALYSIS_SCHEDULE_MINUTE:-0}
-      WB_TIMEZONE: Asia/Seoul
-      WB_NEWS_SENTIMENT_ENABLED: ${WB_NEWS_SENTIMENT_ENABLED:-false}
-      WB_NEWS_NAVER_CLIENT_ID: ${WB_NEWS_NAVER_CLIENT_ID:-}
-      WB_NEWS_NAVER_CLIENT_SECRET: ${WB_NEWS_NAVER_CLIENT_SECRET:-}
-      WB_NEWS_DART_API_KEY: ${WB_NEWS_DART_API_KEY:-}
-      WB_NEWS_ANTHROPIC_API_KEY: ${WB_NEWS_ANTHROPIC_API_KEY:-}
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      <<: *common-env
+    volumes:
+      - ./logs:/app/logs
+    depends_on: *depends-db
     networks:
-      - db        # DB/Redis 접근
-      - app       # 인터넷 (KRX API)
-    restart: unless-stopped
+      - db
+      - app
+    profiles:
+      - cli
 
 volumes:
   pgdata:
@@ -142,6 +135,6 @@ volumes:
 
 networks:
   db:
-    internal: true   # DB/Redis 전용, 외부 접근 불가
+    internal: true   # DB/Redis only, no external access
   app:
-    # backend/frontend/scheduler 통신 + 인터넷
+    # backend/frontend/scheduler + internet (KRX API)
