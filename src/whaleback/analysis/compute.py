@@ -10,6 +10,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import date, timedelta
 from typing import Any
 
+from tqdm import tqdm
+
 from sqlalchemy import select, func, and_, desc
 from sqlalchemy.orm import Session
 
@@ -183,9 +185,9 @@ class AnalysisComputer:
             investor_data_acc: dict[str, list[dict[str, Any]]] = {}
             trading_values_acc: dict[str, float] = {}
 
-            for i, (ticker, stock_name) in enumerate(tickers.items()):
-                if (i + 1) % 200 == 0:
-                    logger.info(f"Processing {i + 1}/{len(tickers)}...")
+            for ticker, stock_name in tqdm(
+                tickers.items(), desc="[1/5] 6축 분석", unit="종목",
+            ):
 
                 try:
                     # --- Quant Analysis ---
@@ -262,6 +264,7 @@ class AnalysisComputer:
             all_news_articles: list[dict[str, Any]] = []
 
             if self.settings.news_sentiment_enabled:
+                logger.info("[2/5] 뉴스 감성 분석 시작...")
                 try:
                     (
                         news_snapshot_rows,
@@ -269,8 +272,9 @@ class AnalysisComputer:
                         sentiment_adj_lookup,
                         all_news_articles,
                     ) = self._collect_and_score_news(tickers, target_date)
+                    logger.info("[2/5] 뉴스 감성 완료: %d종목 스냅샷", len(news_snapshot_rows))
                 except Exception as e:
-                    logger.warning("News sentiment phase failed: %s", e)
+                    logger.warning("[2/5] 뉴스 감성 실패: %s", e)
 
             # --- Parallel Simulation Phase ---
             simulation_rows = self._compute_simulations_parallel(
@@ -322,7 +326,7 @@ class AnalysisComputer:
                             add = 15.0 if signal == "strong_accumulation" else 5.0
                             sector_flow_bonus_lookup[t] = min(current_bonus + add, 15.0)
 
-            for ticker in tickers:
+            for ticker in tqdm(tickers, desc="[4/5] 종합점수", unit="종목"):
                 try:
                     quant_d = quant_lookup.get(ticker)
                     whale_d = whale_lookup.get(ticker)
@@ -370,7 +374,8 @@ class AnalysisComputer:
                     logger.warning(f"Composite scoring failed for {ticker}: {e}")
                     continue
 
-            # Persist results
+            # [5/5] Persist results
+            logger.info("[5/5] DB 저장 중...")
             quant_count = self._persist_snapshots(session, AnalysisQuantSnapshot, quant_rows)
             whale_count = self._persist_snapshots(session, AnalysisWhaleSnapshot, whale_rows)
             trend_count = self._persist_snapshots(session, AnalysisTrendSnapshot, trend_rows)
@@ -929,7 +934,7 @@ class AnalysisComputer:
         max_workers = min(self.settings.simulation_max_workers, len(ticker_prices))
 
         logger.info(
-            "Running parallel simulations for %d tickers with %d workers",
+            "[3/5] 시뮬레이션 시작: %d종목, %d workers",
             len(ticker_prices), max_workers,
         )
 
@@ -944,7 +949,10 @@ class AnalysisComputer:
                     ticker_config = {**config, "sentiment_adjustments": sentiment_adj_lookup[ticker]}
                 futures[executor.submit(_run_simulation_worker, ticker, prices, ticker_config)] = ticker
 
-            for future in as_completed(futures):
+            for future in tqdm(
+                as_completed(futures), total=len(futures),
+                desc="[3/5] 시뮬레이션", unit="종목",
+            ):
                 ticker = futures[future]
                 try:
                     _, sim_result = future.result()
