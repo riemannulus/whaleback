@@ -33,7 +33,7 @@ def _get_anthropic_client(api_key: str):
     if _anthropic_client is not None and _anthropic_api_key_cached == api_key:
         return _anthropic_client
     import anthropic
-    _anthropic_client = anthropic.AsyncAnthropic(api_key=api_key)
+    _anthropic_client = anthropic.AsyncAnthropic(api_key=api_key, max_retries=5)
     _anthropic_api_key_cached = api_key
     return _anthropic_client
 
@@ -434,7 +434,7 @@ async def score_articles(
         # Concurrent fallback for remaining items (small batches or batch failures)
         remaining = [p for p in llm_pending if p[0] not in llm_results]
         if remaining:
-            sem = asyncio.Semaphore(10)
+            sem = asyncio.Semaphore(5)
             logger.info("LLM concurrent escalation: %d articles", len(remaining))
 
             async def _llm_one(scored_idx: int, text_idx: int, ticker: str):
