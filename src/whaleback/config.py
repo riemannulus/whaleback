@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     news_anthropic_api_key: str = ""
     news_lookback_days: int = 14
     news_min_articles: int = 2
-    news_bert_confidence_threshold: float = 0.70
+    news_bert_confidence_threshold: float = 0.55
     news_use_batch_api: bool = False  # Batch API is slow for small batches; use concurrent by default
     news_sentiment_half_life: float = 3.0
 

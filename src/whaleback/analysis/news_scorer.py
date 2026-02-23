@@ -130,7 +130,7 @@ def _build_sentiment_prompt(text: str, ticker: str) -> str:
     """Build sentiment analysis prompt for LLM."""
     return f"""주식 종목 {ticker}에 대한 다음 뉴스 기사의 감성을 분석해주세요.
 
-기사: {text[:1000]}
+기사: {text[:500]}
 
 다음 형식으로만 응답해주세요:
 sentiment: [positive/neutral/negative]
