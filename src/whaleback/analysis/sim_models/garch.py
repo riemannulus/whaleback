@@ -45,6 +45,7 @@ def simulate_garch(
     mu_arith_daily = daily_mu + 0.5 * daily_sigma_hist**2
     mu_arith_daily = float(np.clip(mu_arith_daily, -MAX_DAILY_MU, MAX_DAILY_MU))
     mu_arith_daily += drift_adj_daily
+    mu_arith_daily = float(np.clip(mu_arith_daily, -MAX_DAILY_MU * 2, MAX_DAILY_MU * 2))
 
     max_daily_sigma = max_sigma / np.sqrt(TRADING_DAYS_PER_YEAR)
     max_horizon = max(horizons)

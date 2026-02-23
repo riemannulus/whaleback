@@ -24,9 +24,9 @@ def simulate_merton(
     num_simulations: int,
     horizons: tuple[int, ...],
     rng: np.random.Generator,
-    lam: float = 0.1,
-    mu_j: float = -0.02,
-    sigma_j: float = 0.05,
+    lam: float = 3.0,
+    mu_j: float = 0.0,
+    sigma_j: float = 0.06,
     max_sigma: float = 1.50,
     drift_adj_daily: float = 0.0,
     vol_multiplier: float = 1.0,
@@ -72,12 +72,16 @@ def simulate_merton(
     mu_arith_daily = daily_mu + 0.5 * daily_sigma_orig**2
     mu_arith_daily = float(np.clip(mu_arith_daily, -MAX_DAILY_MU, MAX_DAILY_MU))
     mu_arith_daily += drift_adj_daily
+    mu_arith_daily = float(np.clip(mu_arith_daily, -MAX_DAILY_MU * 2, MAX_DAILY_MU * 2))
     daily_sigma *= vol_multiplier
+    max_daily_sigma = max_sigma / np.sqrt(TRADING_DAYS_PER_YEAR)
+    daily_sigma = min(daily_sigma, max_daily_sigma)
 
     # Apply jump parameter sentiment adjustments
     lam *= lam_multiplier
     mu_j += mu_j_adj
     sigma_j *= sig_j_multiplier
+    sigma_j = min(sigma_j, 5.0)  # Prevent exp() overflow in jump compensator
 
     # Daily jump intensity
     lam_daily = lam / TRADING_DAYS_PER_YEAR

@@ -136,7 +136,7 @@ def run_monte_carlo(
         logger.debug("Zero volatility detected, skipping simulation")
         return None
 
-    base_price = int(clean_prices[-1])
+    base_price = max(1, int(round(clean_prices[-1])))
 
     # --- Stable seed (hashlib-based, not session-dependent hash()) ------
     if ticker:
@@ -194,10 +194,10 @@ def run_monte_carlo(
                 result = simulate_heston(
                     log_returns, base_price, num_simulations,
                     horizons, child_rng,
-                    kappa=heston_p.get("kappa", 2.0),
-                    theta=heston_p.get("theta", 0.04),
-                    xi=heston_p.get("xi", 0.3),
-                    rho=heston_p.get("rho", -0.7),
+                    kappa=heston_p.get("kappa", 3.0),
+                    theta=heston_p.get("theta", 0.09),
+                    xi=heston_p.get("xi", 0.40),
+                    rho=heston_p.get("rho", -0.50),
                     drift_adj_annual=sa.get("drift_adj_daily", 0.0) * 252,
                     theta_mult=sa.get("theta_mult", 1.0),
                     v0_mult=sa.get("v0_mult", 1.0),
@@ -207,9 +207,9 @@ def run_monte_carlo(
                 result = simulate_merton(
                     log_returns, base_price, num_simulations,
                     horizons, child_rng,
-                    lam=merton_p.get("lam", 0.1),
-                    mu_j=merton_p.get("mu_j", -0.02),
-                    sigma_j=merton_p.get("sigma_j", 0.05),
+                    lam=merton_p.get("lam", 3.0),
+                    mu_j=merton_p.get("mu_j", 0.0),
+                    sigma_j=merton_p.get("sigma_j", 0.06),
                     max_sigma=max_sigma,
                     drift_adj_daily=sa.get("drift_adj_daily", 0.0),
                     vol_multiplier=sa.get("vol_multiplier", 1.0),
@@ -351,9 +351,9 @@ def compute_simulation_score(
         return {"score": None, "grade": None}
 
     # Normalize components to 0-100
-    norm_return = _normalize_return(median_return_6m, center=0, scale=20)
+    norm_return = _normalize_return(median_return_6m, center=0, scale=50)
     norm_upside = upside_prob_3m * 100
-    norm_var = _normalize_var(var_5pct_3m, center=-15, scale=10)
+    norm_var = _normalize_var(var_5pct_3m, center=-25, scale=15)
 
     w = SCORE_WEIGHTS
     score = (
@@ -381,21 +381,21 @@ def compute_simulation_score(
 # ---------------------------------------------------------------------------
 
 
-def _normalize_return(value: float, center: float = 0, scale: float = 20) -> float:
+def _normalize_return(value: float, center: float = 0, scale: float = 50) -> float:
     """Sigmoid normalisation for expected-return values.
 
-    Responsive range (10-90 score): approx -40% to +40%.
-    Returns beyond ±40% saturate, reducing discrimination for extreme-vol stocks.
-    Calibrated for typical Korean equity 6-month return distributions.
+    Responsive range (10-90 score): approx -110% to +110%.
+    Wider scale prevents saturation for Korean equities with high volatility.
+    Calibrated via walk-forward backtest on KOSPI/KOSDAQ universe.
     """
     return float(100.0 / (1.0 + np.exp(-(value - center) / scale)))
 
 
-def _normalize_var(value: float, center: float = -15, scale: float = 10) -> float:
+def _normalize_var(value: float, center: float = -25, scale: float = 15) -> float:
     """Sigmoid normalisation for VaR values (lower VaR loss = higher score).
 
-    Center at -15% means a 15% loss over 3 months scores 50 (neutral).
-    Responsive range (10-90 score): approx -35% to +5% VaR.
-    Calibrated for Korean equities (30% annualised downside vol → neutral).
+    Center at -25% means a 25% loss over 3 months scores 50 (neutral).
+    Responsive range (10-90 score): approx -58% to +8% VaR.
+    Calibrated for Korean equities (median 3M VaR ≈ -29% across KOSPI/KOSDAQ).
     """
     return float(100.0 / (1.0 + np.exp(-(value - center) / scale)))

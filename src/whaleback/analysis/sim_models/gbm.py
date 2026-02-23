@@ -65,7 +65,10 @@ def simulate_gbm(
     mu_arith_daily = daily_mu + 0.5 * daily_sigma**2
     mu_arith_daily = float(np.clip(mu_arith_daily, -MAX_DAILY_MU, MAX_DAILY_MU))
     mu_arith_daily += drift_adj_daily
+    mu_arith_daily = float(np.clip(mu_arith_daily, -MAX_DAILY_MU * 2, MAX_DAILY_MU * 2))
     daily_vol *= vol_multiplier
+    max_daily_vol = max_sigma / np.sqrt(TRADING_DAYS_PER_YEAR)
+    daily_vol = min(daily_vol, max_daily_vol)
     daily_drift = mu_arith_daily - 0.5 * daily_vol**2
 
     terminal_prices: dict[int, np.ndarray] = {}
@@ -76,6 +79,9 @@ def simulate_gbm(
         daily_log_ret = daily_drift + daily_vol * z
         cumulative = np.cumsum(daily_log_ret, axis=1)
         terminal = base_price * np.exp(cumulative[:, -1])
+
+        # Cap extreme values (consistent with other models)
+        terminal = np.clip(terminal, base_price * 0.001, base_price * 100)
 
         terminal_prices[h] = terminal
         horizons_result[h] = _compute_horizon_stats(terminal, base_price, h)

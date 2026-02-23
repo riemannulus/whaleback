@@ -25,10 +25,10 @@ def simulate_heston(
     num_simulations: int,
     horizons: tuple[int, ...],
     rng: np.random.Generator,
-    kappa: float = 2.0,
-    theta: float = 0.04,
-    xi: float = 0.3,
-    rho: float = -0.7,
+    kappa: float = 3.0,
+    theta: float = 0.09,
+    xi: float = 0.40,
+    rho: float = -0.50,
     drift_adj_annual: float = 0.0,
     theta_mult: float = 1.0,
     v0_mult: float = 1.0,
@@ -59,15 +59,15 @@ def simulate_heston(
     rho = max(-1.0, min(1.0, rho))  # clamp to valid correlation range
     rho = max(-0.99, min(0.99, rho + rho_adj))
 
+    # Apply theta multiplier before Feller condition check
+    theta *= theta_mult
+
     if 2 * kappa * theta <= xi**2:
         logger.warning(
             "Heston: Feller condition violated (2κθ=%.4f ≤ ξ²=%.4f). "
             "Variance may hit zero; full truncation will handle it.",
             2 * kappa * theta, xi**2,
         )
-
-    # Apply theta multiplier after Feller condition check
-    theta *= theta_mult
 
     # Annualise drift and variance so all parameters are on the same scale
     daily_mu = float(np.mean(log_returns))
@@ -80,6 +80,7 @@ def simulate_heston(
     mu_arith_annual = (daily_mu + 0.5 * daily_sigma**2) * TRADING_DAYS_PER_YEAR
     mu_arith_annual = float(np.clip(mu_arith_annual, -MAX_ANNUAL_MU, MAX_ANNUAL_MU))
     mu_arith_annual += drift_adj_annual
+    mu_arith_annual = float(np.clip(mu_arith_annual, -MAX_ANNUAL_MU * 2, MAX_ANNUAL_MU * 2))
 
     # Initial variance: annualise daily variance to match theta scale
     recent_var = float(np.var(log_returns[-20:], ddof=1)) if len(log_returns) >= 20 else float(np.var(log_returns, ddof=1))
@@ -105,8 +106,9 @@ def simulate_heston(
         # Price process (log space) — arithmetic drift with stochastic Ito correction
         log_s[:, t + 1] = log_s[:, t] + (mu_arith_annual - 0.5 * v_pos) * dt + sqrt_v * np.sqrt(dt) * z1[:, t]
 
-        # Variance process
+        # Variance process (cap at 10x long-run variance to prevent blowup)
         v[:, t + 1] = v[:, t] + kappa * (theta - v_pos) * dt + xi * sqrt_v * np.sqrt(dt) * z2[:, t]
+        v[:, t + 1] = np.minimum(v[:, t + 1], max(theta * 10, 2.25))
 
     terminal_prices: dict[int, np.ndarray] = {}
     horizons_result = {}
