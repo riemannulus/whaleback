@@ -219,6 +219,7 @@ def init_db():
         "ALTER TABLE analysis_composite_snapshot ADD COLUMN IF NOT EXISTS forecast_score NUMERIC(6, 2)",
         "ALTER TABLE analysis_simulation_snapshot ADD COLUMN IF NOT EXISTS model_breakdown JSONB",
         "ALTER TABLE analysis_composite_snapshot ADD COLUMN IF NOT EXISTS sentiment_score NUMERIC(6, 2)",
+        "ALTER TABLE analysis_simulation_snapshot ADD COLUMN IF NOT EXISTS sentiment_applied BOOLEAN DEFAULT FALSE",
     ]
     with engine.begin() as conn:
         for stmt in add_column_statements:

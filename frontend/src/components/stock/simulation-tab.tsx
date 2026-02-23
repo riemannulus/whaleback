@@ -89,7 +89,7 @@ export function SimulationTab({ ticker }: SimulationTabProps) {
               <span className="text-sm text-slate-500">
                 기준가: {sim.base_price != null ? formatKRW(sim.base_price) + "원" : "N/A"}
               </span>
-              {(data.data as any)?.sentiment_applied && (
+              {sim.sentiment_applied && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
                   AI 뉴스 감성 반영됨
                 </span>

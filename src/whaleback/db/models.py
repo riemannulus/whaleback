@@ -282,6 +282,7 @@ class AnalysisSimulationSnapshot(Base):
     horizons: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     target_probs: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     model_breakdown: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    sentiment_applied: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

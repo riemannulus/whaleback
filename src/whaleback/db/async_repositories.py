@@ -825,6 +825,7 @@ def _simulation_to_dict(s: AnalysisSimulationSnapshot) -> dict[str, Any]:
         "expected_return_pct_6m": float(expected_return_pct_6m) if expected_return_pct_6m is not None else None,
         "upside_prob_3m": float(upside_prob_3m) if upside_prob_3m is not None else None,
         "model_breakdown": s.model_breakdown,
+        "sentiment_applied": bool(s.sentiment_applied) if s.sentiment_applied is not None else False,
     }
 
 

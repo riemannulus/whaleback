@@ -370,6 +370,7 @@ class SimulationResult(BaseModel):
     horizons: dict[str, SimulationHorizon] | None = None
     target_probs: dict[str, dict[str, float]] | None = None
     model_breakdown: SimulationModelBreakdown | None = None
+    sentiment_applied: bool = False
 
 
 class SimulationTopItem(BaseModel):

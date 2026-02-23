@@ -297,6 +297,7 @@ export interface SimulationResult {
   horizons: Record<string, SimulationHorizon> | null;
   target_probs: Record<string, Record<string, number>> | null;
   model_breakdown: SimulationModelBreakdown | null;
+  sentiment_applied: boolean;
 }
 
 export interface ModelScore {

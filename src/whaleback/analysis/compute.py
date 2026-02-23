@@ -131,6 +131,7 @@ def _run_simulation_worker(
         "horizons": result["horizons"],
         "target_probs": result["target_probs"],
         "model_breakdown": result.get("model_breakdown"),
+        "sentiment_applied": result.get("sentiment_applied", False),
     }
 
 
