@@ -21,8 +21,21 @@ BERT_LABEL_MAP = {
     "positive": ("positive", 1.0),
 }
 
-# Singleton model cache
+# Singleton caches
 _bert_pipeline = None
+_anthropic_client = None
+_anthropic_api_key_cached = None
+
+
+def _get_anthropic_client(api_key: str):
+    """Lazy-load Anthropic async client (singleton)."""
+    global _anthropic_client, _anthropic_api_key_cached
+    if _anthropic_client is not None and _anthropic_api_key_cached == api_key:
+        return _anthropic_client
+    import anthropic
+    _anthropic_client = anthropic.AsyncAnthropic(api_key=api_key)
+    _anthropic_api_key_cached = api_key
+    return _anthropic_client
 
 
 def _get_bert_pipeline():
@@ -136,7 +149,7 @@ async def score_article_llm(
     try:
         import anthropic
 
-        client = anthropic.AsyncAnthropic(api_key=api_key)
+        client = _get_anthropic_client(api_key)
 
         prompt = f"""주식 종목 {ticker}에 대한 다음 뉴스 기사의 감성을 분석해주세요.
 
@@ -275,8 +288,10 @@ async def score_articles(
         except Exception as e:
             logger.warning("Batch BERT scoring failed: %s", e)
 
-    # Stage 2: Apply results, escalate low confidence to LLM
+    # Stage 2: Apply BERT results, collect low-confidence for LLM batch
     scored: list[dict[str, Any]] = []
+    llm_pending: list[tuple[int, int, str]] = []  # (scored_idx, text_idx, ticker)
+
     for idx, article in enumerate(valid_articles):
         bert_result = bert_results[idx]
 
@@ -285,20 +300,13 @@ async def score_articles(
             scored.append(article)
             continue
 
-        # LLM escalation for low-confidence results
+        # Mark for LLM escalation
+        scored_idx = len(scored)
+        scored.append(article)  # placeholder, will be updated with LLM result
         if anthropic_api_key:
-            llm_result = await score_article_llm(
-                texts[idx], anthropic_api_key, article.get("ticker", "")
-            )
-            if llm_result:
-                article.update(llm_result)
-                scored.append(article)
-                continue
-
-        # Fallback: use BERT result even if low confidence
-        if bert_result:
+            llm_pending.append((scored_idx, idx, article.get("ticker", "")))
+        elif bert_result:
             article.update(bert_result)
-            scored.append(article)
         else:
             article.update({
                 "sentiment_raw": 0.0,
@@ -306,6 +314,45 @@ async def score_articles(
                 "sentiment_confidence": 0.0,
                 "scoring_method": "fallback",
             })
-            scored.append(article)
+
+    # Batch LLM escalation with concurrency limit
+    if llm_pending:
+        import asyncio
+
+        sem = asyncio.Semaphore(10)  # max 10 concurrent LLM calls
+        logger.info("LLM escalation: %d articles (concurrency=10)", len(llm_pending))
+
+        async def _llm_one(scored_idx: int, text_idx: int, ticker: str):
+            async with sem:
+                return scored_idx, await score_article_llm(
+                    texts[text_idx], anthropic_api_key, ticker
+                )
+
+        tasks = [_llm_one(si, ti, tk) for si, ti, tk in llm_pending]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning("LLM escalation error: %s", result)
+                continue
+            scored_idx, llm_result = result
+            article = scored[scored_idx]
+            if llm_result:
+                article.update(llm_result)
+            else:
+                # Fallback to BERT result
+                bert_idx = next(
+                    ti for si, ti, _ in llm_pending if si == scored_idx
+                )
+                bert_result = bert_results[bert_idx]
+                if bert_result:
+                    article.update(bert_result)
+                else:
+                    article.update({
+                        "sentiment_raw": 0.0,
+                        "sentiment_label": "neutral",
+                        "sentiment_confidence": 0.0,
+                        "scoring_method": "fallback",
+                    })
 
     return pre_scored + scored
