@@ -277,26 +277,17 @@ async def _score_articles_batch(
         batch.request_counts.expired,
     )
 
-    # Stream results — handle both sync and async iterators from SDK
+    # Stream results — AsyncAnthropic.results() is a coroutine returning async iterator
     results: dict[int, dict[str, Any]] = {}
-    result_stream = client.messages.batches.results(batch.id)
+    result_stream = await client.messages.batches.results(batch.id)
 
-    if hasattr(result_stream, "__aiter__"):
-        async for item in result_stream:
-            scored_idx = id_map.get(item.custom_id)
-            if scored_idx is not None and item.result.type == "succeeded":
-                text = item.result.message.content[0].text.strip()
-                results[scored_idx] = _parse_llm_response(text)
-            elif scored_idx is not None:
-                logger.warning("Batch item %s: %s", item.custom_id, item.result.type)
-    else:
-        for item in result_stream:
-            scored_idx = id_map.get(item.custom_id)
-            if scored_idx is not None and item.result.type == "succeeded":
-                text = item.result.message.content[0].text.strip()
-                results[scored_idx] = _parse_llm_response(text)
-            elif scored_idx is not None:
-                logger.warning("Batch item %s: %s", item.custom_id, item.result.type)
+    async for item in result_stream:
+        scored_idx = id_map.get(item.custom_id)
+        if scored_idx is not None and item.result.type == "succeeded":
+            text = item.result.message.content[0].text.strip()
+            results[scored_idx] = _parse_llm_response(text)
+        elif scored_idx is not None:
+            logger.warning("Batch item %s: %s", item.custom_id, item.result.type)
 
     return results
 
