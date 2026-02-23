@@ -296,6 +296,7 @@ async def score_articles(
     articles: list[dict[str, Any]],
     confidence_threshold: float = 0.70,
     anthropic_api_key: str = "",
+    use_batch_api: bool = False,
 ) -> list[dict[str, Any]]:
     """Score all articles using hybrid BERT + LLM pipeline.
 
@@ -410,8 +411,8 @@ async def score_articles(
 
         llm_results: dict[int, dict[str, Any]] = {}
 
-        if len(llm_pending) >= _BATCH_API_THRESHOLD:
-            # Use Message Batches API (50% cost savings)
+        if use_batch_api and len(llm_pending) >= _BATCH_API_THRESHOLD:
+            # Use Message Batches API (50% cost savings, higher latency)
             try:
                 llm_results = await _score_articles_batch(
                     texts, llm_pending, anthropic_api_key,

@@ -1054,6 +1054,7 @@ class AnalysisComputer:
                 all_articles_flat,
                 confidence_threshold=settings.news_bert_confidence_threshold,
                 anthropic_api_key=settings.news_anthropic_api_key,
+                use_batch_api=settings.news_use_batch_api,
             )
 
             # Split scored articles back by ticker
