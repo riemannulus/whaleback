@@ -297,6 +297,7 @@ async def score_articles(
     confidence_threshold: float = 0.70,
     anthropic_api_key: str = "",
     use_batch_api: bool = False,
+    max_llm_escalation: int = 0,
 ) -> list[dict[str, Any]]:
     """Score all articles using hybrid BERT + LLM pipeline.
 
@@ -408,6 +409,30 @@ async def score_articles(
     # Stage 2: LLM escalation (Batch API for large sets, concurrent for small)
     if llm_pending:
         import asyncio
+
+        # Cap LLM escalation to control cost
+        if max_llm_escalation and len(llm_pending) > max_llm_escalation:
+            logger.info(
+                "LLM escalation capped: %d → %d (cost limit)",
+                len(llm_pending), max_llm_escalation,
+            )
+            # Keep lowest-confidence articles (most benefit from LLM)
+            llm_pending.sort(
+                key=lambda x: (bert_results[x[1]] or {}).get("sentiment_confidence", 0.0),
+            )
+            overflow = llm_pending[max_llm_escalation:]
+            llm_pending = llm_pending[:max_llm_escalation]
+            # Apply BERT results to capped articles
+            for scored_idx, text_idx, _ in overflow:
+                article = scored[scored_idx]
+                br = bert_results[text_idx]
+                if br:
+                    article.update(br)
+                else:
+                    article.update({
+                        "sentiment_raw": 0.0, "sentiment_label": "neutral",
+                        "sentiment_confidence": 0.0, "scoring_method": "fallback",
+                    })
 
         llm_results: dict[int, dict[str, Any]] = {}
 
