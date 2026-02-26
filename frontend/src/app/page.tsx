@@ -5,7 +5,7 @@ import { formatKRW, formatPercent, formatLargeNumber } from "@/lib/utils";
 import Link from "next/link";
 import ReactECharts from "echarts-for-react";
 import type { SectorFlowHeatmapData } from "@/types/api";
-import { MarketAISummary } from "@/components/dashboard/market-ai-summary";
+import MarketAISummary from "@/components/dashboard/market-ai-summary";
 
 function StatCard({ title, value, subtitle }: { title: string; value: string; subtitle?: string }) {
   return (

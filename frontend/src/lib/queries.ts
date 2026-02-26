@@ -190,6 +190,23 @@ export function useMarketSummary() {
   });
 }
 
+export function useMarketSummaryByDate(date: string | null) {
+  return useQuery({
+    queryKey: ["market-summary", date],
+    queryFn: () => marketSummaryApi.getByDate(date!),
+    enabled: !!date,
+    staleTime: Infinity,
+  });
+}
+
+export function useMarketSummaryHistory(limit: number = 30) {
+  return useQuery({
+    queryKey: ["market-summary", "history", limit],
+    queryFn: () => marketSummaryApi.getHistory(limit),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 // System hooks
 export function useHealth() {
   return useQuery({

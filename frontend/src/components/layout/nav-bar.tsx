@@ -13,6 +13,7 @@ const navItems = [
   { href: "/analysis/whale", label: "수급분석" },
   { href: "/analysis/trend", label: "추세분석" },
   { href: "/analysis/sector-flow", label: "섹터수급" },
+  { href: "/analysis/ai-report", label: "AI 리포트" },
 ];
 
 const creatorLinks = [

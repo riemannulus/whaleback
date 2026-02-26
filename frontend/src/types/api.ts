@@ -376,12 +376,23 @@ export interface SectorFlowHeatmapData {
 
 // Market Summary types
 export interface MarketSummaryKeyInsights {
-  market_overview: string;
-  institutional_moves: string;
-  sector_rotation: string;
-  notable_stocks: string[];
-  risk_factors: string;
-  strategy: string;
+  executive_summary?: string;
+  market_environment?: string;
+  institutional_flow?: string;
+  sector_rotation?: string;
+  stock_spotlight?: string[];
+  quant_signal?: string;
+  trend_momentum?: string;
+  news_sentiment?: string;
+  risk_assessment?: string;
+  previous_comparison?: string;
+  strategy?: string;
+  watchlist?: string[];
+  // Legacy fields for backward compatibility
+  market_overview?: string;
+  institutional_moves?: string;
+  notable_stocks?: string[];
+  risk_factors?: string;
 }
 
 export interface MarketSummarySectorHighlight {
@@ -399,6 +410,20 @@ export interface MarketSummary {
   model_used: string;
   condenser_model_used: string;
   computed_at: string;
+}
+
+export interface ParsedReportSection {
+  id: string;
+  title: string;
+  content: string;
+  level: number;
+}
+
+export interface MarketSummaryHistoryItem {
+  trade_date: string;
+  dashboard_summary: string;
+  computed_at: string;
+  model_used: string;
 }
 
 // System types
