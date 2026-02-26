@@ -19,6 +19,15 @@ target_metadata = Base.metadata
 
 # Override sqlalchemy.url from environment if available
 db_url = os.environ.get("WB_DATABASE_URL")
+if not db_url:
+    # Build URL from individual WB_DB_* env vars (Docker compose sets these)
+    host = os.environ.get("WB_DB_HOST")
+    if host:
+        port = os.environ.get("WB_DB_PORT", "5432")
+        name = os.environ.get("WB_DB_NAME", "whaleback")
+        user = os.environ.get("WB_DB_USER", "whaleback")
+        password = os.environ.get("WB_DB_PASSWORD", "")
+        db_url = f"postgresql://{user}:{password}@{host}:{port}/{name}"
 if db_url:
     config.set_main_option("sqlalchemy.url", db_url)
 
