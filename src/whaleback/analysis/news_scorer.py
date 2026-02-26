@@ -451,11 +451,22 @@ async def score_articles(
         # Concurrent fallback for remaining items (small batches or batch failures)
         remaining = [p for p in llm_pending if p[0] not in llm_results]
         if remaining:
-            sem = asyncio.Semaphore(5)
-            logger.info("LLM concurrent escalation: %d articles", len(remaining))
+            sem = asyncio.Semaphore(3)
+            # Rate limiter: 40 RPM budget (safe margin under 50 RPM limit)
+            _rpm_interval = 60.0 / 40  # 1.5s between requests
+            _last_request_time = 0.0
+            _rate_lock = asyncio.Lock()
+            logger.info("LLM concurrent escalation: %d articles (rate-limited 40 RPM)", len(remaining))
 
             async def _llm_one(scored_idx: int, text_idx: int, ticker: str):
+                nonlocal _last_request_time
                 async with sem:
+                    async with _rate_lock:
+                        now = asyncio.get_event_loop().time()
+                        wait = _rpm_interval - (now - _last_request_time)
+                        if wait > 0:
+                            await asyncio.sleep(wait)
+                        _last_request_time = asyncio.get_event_loop().time()
                     return scored_idx, await score_article_llm(
                         texts[text_idx], anthropic_api_key, ticker
                     )
