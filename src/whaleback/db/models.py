@@ -379,3 +379,21 @@ class AnalysisNewsSnapshot(Base):
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class MarketSummary(Base):
+    """시장 AI 요약 - LLM 기반 시장 분석 리포트"""
+    __tablename__ = "market_summary"
+
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    full_report: Mapped[str] = mapped_column(Text, nullable=False)
+    dashboard_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    key_insights: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    sector_highlights: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    model_used: Mapped[str] = mapped_column(String(50), nullable=False)
+    condenser_model_used: Mapped[str] = mapped_column(String(50), nullable=False)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

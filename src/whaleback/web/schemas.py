@@ -1,9 +1,9 @@
 """Pydantic response schemas for Whaleback API."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Generic, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 T = TypeVar("T")
 
@@ -437,6 +437,23 @@ class SectorFlowHeatmapData(BaseModel):
     investor_types: list[str]
     matrix: list[list[float | None]]
     signals: list[list[str | None]]
+
+
+# --- Market Summary schemas ---
+
+
+class MarketSummaryResponse(BaseModel):
+    """시장 AI 요약 응답"""
+    trade_date: date
+    full_report: str
+    dashboard_summary: str
+    key_insights: dict | None = None
+    sector_highlights: dict | None = None
+    model_used: str
+    condenser_model_used: str
+    computed_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- System schemas ---

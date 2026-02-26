@@ -224,13 +224,13 @@ class TestComputeWhaleScore:
         assert result["signal"] == "neutral"  # Positive net_total
 
     def test_composite_score_calculation(self):
-        """Whale score should be max * 0.5 + avg * 0.5."""
+        """Whale score should be max * 0.5 + avg * 0.5 over active investor types only."""
         data = [
             {
                 "trade_date": f"2024-01-{i:02d}",
-                "institution_net": 1_000_000_000,  # Will have high score
-                "foreign_net": 0,  # Will have low score
-                "pension_net": 0,  # Will have low score
+                "institution_net": 1_000_000_000,  # Active: buying
+                "foreign_net": 500_000_000,  # Active: buying
+                "pension_net": 0,  # Inactive: no buy/sell
             }
             for i in range(1, 21)
         ]
@@ -238,10 +238,11 @@ class TestComputeWhaleScore:
 
         inst_score = result["components"]["institution_net"]["score"]
         foreign_score = result["components"]["foreign_net"]["score"]
-        pension_score = result["components"]["pension_net"]["score"]
 
-        max_score = max(inst_score, foreign_score, pension_score)
-        avg_score = (inst_score + foreign_score + pension_score) / 3
+        # Only active types (buy_days + sell_days > 0) contribute to avg
+        active_scores = [inst_score, foreign_score]
+        max_score = max(active_scores)
+        avg_score = sum(active_scores) / len(active_scores)
         expected_whale_score = max_score * 0.5 + avg_score * 0.5
 
         assert abs(result["whale_score"] - expected_whale_score) < 0.01

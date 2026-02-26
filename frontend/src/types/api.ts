@@ -374,6 +374,33 @@ export interface SectorFlowHeatmapData {
   metric: string;
 }
 
+// Market Summary types
+export interface MarketSummaryKeyInsights {
+  market_overview: string;
+  institutional_moves: string;
+  sector_rotation: string;
+  notable_stocks: string[];
+  risk_factors: string;
+  strategy: string;
+}
+
+export interface MarketSummarySectorHighlight {
+  signal: string;
+  key_investors: string[];
+  net_purchase: number;
+}
+
+export interface MarketSummary {
+  trade_date: string;
+  full_report: string;
+  dashboard_summary: string;
+  key_insights: MarketSummaryKeyInsights | null;
+  sector_highlights: Record<string, MarketSummarySectorHighlight> | null;
+  model_used: string;
+  condenser_model_used: string;
+  computed_at: string;
+}
+
 // System types
 export interface HealthResponse {
   status: string;

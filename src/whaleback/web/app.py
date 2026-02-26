@@ -80,6 +80,7 @@ def _register_routers(app: FastAPI):
     from whaleback.web.routers.simulation import router as simulation_router
     from whaleback.web.routers.sector_flow import router as sector_flow_router
     from whaleback.web.routers.news_sentiment import router as news_sentiment_router
+    from whaleback.web.routers.market_summary import router as market_summary_router
 
     app.include_router(stocks_router, prefix="/api/v1")
     app.include_router(quant_router, prefix="/api/v1")
@@ -89,4 +90,5 @@ def _register_routers(app: FastAPI):
     app.include_router(simulation_router, prefix="/api/v1")
     app.include_router(sector_flow_router, prefix="/api/v1")
     app.include_router(news_sentiment_router, prefix="/api/v1")
+    app.include_router(market_summary_router, prefix="/api/v1")
     app.include_router(system_router, prefix="/api/v1")

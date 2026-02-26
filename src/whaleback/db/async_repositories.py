@@ -23,6 +23,7 @@ from whaleback.db.models import (
     AnalysisSectorFlowSnapshot,
     NewsArticle,
     AnalysisNewsSnapshot,
+    MarketSummary,
 )
 
 logger = logging.getLogger(__name__)
@@ -1046,3 +1047,36 @@ def _news_snapshot_to_dict(n: AnalysisNewsSnapshot) -> dict[str, Any]:
         "status": n.status,
         "source_breakdown": n.source_breakdown,
     }
+
+
+async def get_market_summary(
+    session: AsyncSession,
+    trade_date: date | None = None,
+) -> "MarketSummary | None":
+    """시장 AI 요약 조회. trade_date가 None이면 최신 요약 반환."""
+    try:
+        if trade_date:
+            stmt = select(MarketSummary).where(MarketSummary.trade_date == trade_date)
+        else:
+            stmt = select(MarketSummary).order_by(MarketSummary.trade_date.desc()).limit(1)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+    except Exception:
+        await session.rollback()
+        logger.warning("Failed to get market summary")
+        return None
+
+
+async def get_market_summary_list(
+    session: AsyncSession,
+    limit: int = 10,
+) -> list["MarketSummary"]:
+    """최근 시장 AI 요약 목록 조회."""
+    try:
+        stmt = select(MarketSummary).order_by(MarketSummary.trade_date.desc()).limit(limit)
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+    except Exception:
+        await session.rollback()
+        logger.warning("Failed to get market summary list")
+        return []

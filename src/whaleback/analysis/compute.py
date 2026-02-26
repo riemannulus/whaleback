@@ -45,6 +45,11 @@ from whaleback.analysis.composite import (
 )
 from whaleback.analysis.simulation import run_monte_carlo
 from whaleback.analysis.sector_flow import compute_sector_flows
+from whaleback.analysis.market_summary import (
+    MarketSummaryInput,
+    generate_market_report,
+    condense_for_dashboard,
+)
 from whaleback.config import Settings
 from whaleback.db.engine import get_session
 from whaleback.db.models import (
@@ -65,6 +70,7 @@ from whaleback.db.models import (
     AnalysisSectorFlowSnapshot,
     AnalysisNewsSnapshot,
     NewsArticle,
+    MarketSummary,
 )
 
 logger = logging.getLogger(__name__)
@@ -160,7 +166,7 @@ class AnalysisComputer:
                 return {
                     "quant": 0, "whale": 0, "trend": 0,
                     "flow": 0, "technical": 0, "risk": 0, "composite": 0,
-                    "news_sentiment": 0,
+                    "news_sentiment": 0, "market_summary": 0,
                 }
 
             # Pre-compute sector medians for F-Score
@@ -186,7 +192,7 @@ class AnalysisComputer:
             trading_values_acc: dict[str, float] = {}
 
             for ticker, stock_name in tqdm(
-                tickers.items(), desc="[1/5] 6축 분석", unit="종목",
+                tickers.items(), desc="[1/6] 6축 분석", unit="종목",
             ):
 
                 try:
@@ -264,7 +270,7 @@ class AnalysisComputer:
             all_news_articles: list[dict[str, Any]] = []
 
             if self.settings.news_sentiment_enabled:
-                logger.info("[2/5] 뉴스 감성 분석 시작...")
+                logger.info("[2/6] 뉴스 감성 분석 시작...")
                 try:
                     (
                         news_snapshot_rows,
@@ -272,9 +278,9 @@ class AnalysisComputer:
                         sentiment_adj_lookup,
                         all_news_articles,
                     ) = self._collect_and_score_news(tickers, target_date)
-                    logger.info("[2/5] 뉴스 감성 완료: %d종목 스냅샷", len(news_snapshot_rows))
+                    logger.info("[2/6] 뉴스 감성 완료: %d종목 스냅샷", len(news_snapshot_rows))
                 except Exception as e:
-                    logger.warning("[2/5] 뉴스 감성 실패: %s", e)
+                    logger.warning("[2/6] 뉴스 감성 실패: %s", e)
 
             # --- Parallel Simulation Phase ---
             simulation_rows = self._compute_simulations_parallel(
@@ -326,7 +332,7 @@ class AnalysisComputer:
                             add = 15.0 if signal == "strong_accumulation" else 5.0
                             sector_flow_bonus_lookup[t] = min(current_bonus + add, 15.0)
 
-            for ticker in tqdm(tickers, desc="[4/5] 종합점수", unit="종목"):
+            for ticker in tqdm(tickers, desc="[4/6] 종합점수", unit="종목"):
                 try:
                     quant_d = quant_lookup.get(ticker)
                     whale_d = whale_lookup.get(ticker)
@@ -374,8 +380,33 @@ class AnalysisComputer:
                     logger.warning(f"Composite scoring failed for {ticker}: {e}")
                     continue
 
-            # [5/5] Persist results
-            logger.info("[5/5] DB 저장 중...")
+            # --- Phase 5: Market AI Summary (if enabled) ---
+            market_summary_row: dict[str, Any] | None = None
+            if self.settings.market_summary_enabled and self.settings.news_anthropic_api_key:
+                logger.info("[5/6] 시장 AI 요약 생성 중...")
+                try:
+                    market_summary_row = self._generate_market_summary(
+                        target_date=target_date,
+                        tickers=tickers,
+                        sector_flow_rows=sector_flow_rows,
+                        whale_rows=whale_rows,
+                        trend_rows=trend_rows,
+                        composite_rows=composite_rows,
+                        flow_rows=flow_rows,
+                        news_snapshot_rows=news_snapshot_rows,
+                        session=session,
+                    )
+                    if market_summary_row:
+                        logger.info("[5/6] 시장 AI 요약 완료 (tokens: in=%d, out=%d)",
+                                    market_summary_row.get("input_tokens", 0),
+                                    market_summary_row.get("output_tokens", 0))
+                    else:
+                        logger.warning("[5/6] 시장 AI 요약 생성 실패 (빈 결과)")
+                except Exception as e:
+                    logger.warning("[5/6] 시장 AI 요약 실패: %s", e)
+
+            # [6/6] Persist results
+            logger.info("[6/6] DB 저장 중...")
             quant_count = self._persist_snapshots(session, AnalysisQuantSnapshot, quant_rows)
             whale_count = self._persist_snapshots(session, AnalysisWhaleSnapshot, whale_rows)
             trend_count = self._persist_snapshots(session, AnalysisTrendSnapshot, trend_rows)
@@ -387,13 +418,14 @@ class AnalysisComputer:
             sector_flow_count = self._persist_sector_flow_snapshots(session, sector_flow_rows)
             news_count = self._persist_snapshots(session, AnalysisNewsSnapshot, news_snapshot_rows)
             news_article_count = self._persist_news_articles(session, all_news_articles)
+            market_summary_saved = self._persist_market_summary(session, market_summary_row)
 
             logger.info(
                 f"Analysis complete: quant={quant_count}, whale={whale_count}, "
                 f"trend={trend_count}, flow={flow_count}, technical={tech_count}, "
                 f"risk={risk_count}, composite={composite_count}, simulation={sim_count}, "
                 f"sector_flow={sector_flow_count}, news={news_count} "
-                f"(articles={news_article_count})"
+                f"(articles={news_article_count}), market_summary={market_summary_saved}"
             )
             return {
                 "quant": quant_count,
@@ -406,6 +438,7 @@ class AnalysisComputer:
                 "simulation": sim_count,
                 "sector_flow": sector_flow_count,
                 "news_sentiment": news_count,
+                "market_summary": market_summary_saved,
             }
 
     # ------------------------------------------------------------------
@@ -934,7 +967,7 @@ class AnalysisComputer:
         max_workers = min(self.settings.simulation_max_workers, len(ticker_prices))
 
         logger.info(
-            "[3/5] 시뮬레이션 시작: %d종목, %d workers",
+            "[3/6] 시뮬레이션 시작: %d종목, %d workers",
             len(ticker_prices), max_workers,
         )
 
@@ -951,7 +984,7 @@ class AnalysisComputer:
 
             for future in tqdm(
                 as_completed(futures), total=len(futures),
-                desc="[3/5] 시뮬레이션", unit="종목",
+                desc="[3/6] 시뮬레이션", unit="종목",
             ):
                 ticker = futures[future]
                 try:
@@ -1223,6 +1256,190 @@ class AnalysisComputer:
             total += len(clean_batch)
 
         return total
+
+    def _generate_market_summary(
+        self,
+        target_date: date,
+        tickers: dict[str, str],
+        sector_flow_rows: list[dict[str, Any]],
+        whale_rows: list[dict[str, Any]],
+        trend_rows: list[dict[str, Any]],
+        composite_rows: list[dict[str, Any]],
+        flow_rows: list[dict[str, Any]],
+        news_snapshot_rows: list[dict[str, Any]],
+        session: Session,
+    ) -> dict[str, Any] | None:
+        """Generate market AI summary report from computed analysis data.
+
+        Returns a dict suitable for persisting to MarketSummary table, or None on failure.
+        """
+        api_key = self.settings.news_anthropic_api_key
+
+        # Build whale_top: top 20 by whale_score with stock names
+        whale_sorted = sorted(
+            [w for w in whale_rows if w.get("whale_score") is not None],
+            key=lambda x: float(x.get("whale_score", 0)),
+            reverse=True,
+        )[:20]
+        for w in whale_sorted:
+            w["name"] = tickers.get(w.get("ticker", ""), "")
+
+        # Build trend data: aggregate by sector (average RS values)
+        sector_trend: dict[str, dict[str, Any]] = {}
+        for t in trend_rows:
+            sector = t.get("sector")
+            if not sector:
+                continue
+            if sector not in sector_trend:
+                sector_trend[sector] = {
+                    "sector": sector,
+                    "rs_values_20d": [],
+                    "rs_values_60d": [],
+                    "rs_pct_values": [],
+                }
+            if t.get("rs_vs_kospi_20d") is not None:
+                sector_trend[sector]["rs_values_20d"].append(float(t["rs_vs_kospi_20d"]))
+            if t.get("rs_vs_kospi_60d") is not None:
+                sector_trend[sector]["rs_values_60d"].append(float(t["rs_vs_kospi_60d"]))
+            if t.get("rs_percentile") is not None:
+                sector_trend[sector]["rs_pct_values"].append(int(t["rs_percentile"]))
+
+        trend_summary = []
+        for sector, data in sector_trend.items():
+            rs_20d_vals = data["rs_values_20d"]
+            rs_60d_vals = data["rs_values_60d"]
+            rs_pct_vals = data["rs_pct_values"]
+            trend_summary.append({
+                "sector": sector,
+                "rs_vs_kospi_20d": round(sum(rs_20d_vals) / len(rs_20d_vals), 4) if rs_20d_vals else 0,
+                "rs_vs_kospi_60d": round(sum(rs_60d_vals) / len(rs_60d_vals), 4) if rs_60d_vals else 0,
+                "rs_percentile": round(sum(rs_pct_vals) / len(rs_pct_vals)) if rs_pct_vals else 0,
+            })
+
+        # Build news_data: aggregate news sentiment stats
+        news_data: dict[str, Any] = {"total_articles": 0, "avg_direction": 0.0, "avg_intensity": 0.0}
+        if news_snapshot_rows:
+            total = len(news_snapshot_rows)
+            news_data = {
+                "total_tickers_with_news": total,
+                "total_articles": sum(r.get("article_count", 0) for r in news_snapshot_rows),
+                "avg_direction": round(
+                    sum(float(r.get("direction", 0)) for r in news_snapshot_rows) / total, 4
+                ),
+                "avg_intensity": round(
+                    sum(float(r.get("intensity", 0)) for r in news_snapshot_rows) / total, 3
+                ),
+                "sentiment_distribution": {
+                    "positive": sum(1 for r in news_snapshot_rows if float(r.get("direction", 0)) > 0.15),
+                    "neutral": sum(1 for r in news_snapshot_rows if -0.15 <= float(r.get("direction", 0)) <= 0.15),
+                    "negative": sum(1 for r in news_snapshot_rows if float(r.get("direction", 0)) < -0.15),
+                },
+            }
+
+        # Build composite top/bottom with stock names
+        composite_sorted = sorted(
+            [c for c in composite_rows if c.get("composite_score") is not None],
+            key=lambda x: float(x.get("composite_score", 0)),
+            reverse=True,
+        )
+        composite_top = composite_sorted[:20]
+        composite_bottom = composite_sorted[-20:] if len(composite_sorted) > 20 else []
+        for c in composite_top + composite_bottom:
+            c["name"] = tickers.get(c.get("ticker", ""), "")
+
+        # Build market stats
+        total_tickers = len(tickers)
+        composite_scores = [float(c["composite_score"]) for c in composite_rows if c.get("composite_score") is not None]
+        market_stats: dict[str, Any] = {
+            "total_tickers": total_tickers,
+            "analyzed_tickers": len(composite_scores),
+        }
+        if composite_scores:
+            market_stats.update({
+                "avg_composite": round(sum(composite_scores) / len(composite_scores), 2),
+                "above_60_count": sum(1 for s in composite_scores if s >= 60),
+                "below_40_count": sum(1 for s in composite_scores if s < 40),
+            })
+
+        # Build flow_data top (divergence/shift signals)
+        flow_top = sorted(
+            [f for f in flow_rows if f.get("smart_ratio") is not None],
+            key=lambda x: abs(float(x.get("divergence_score", 0) or 0)),
+            reverse=True,
+        )[:20]
+
+        # Strip trade_date from sector_flow_rows for prompt (avoid clutter)
+        sector_flows_clean = [
+            {k: v for k, v in sf.items() if k != "trade_date"}
+            for sf in sector_flow_rows
+        ]
+
+        # Load previous report for comparison
+        previous_report: str | None = None
+        try:
+            prev_row = session.execute(
+                select(MarketSummary.full_report)
+                .where(MarketSummary.trade_date < target_date)
+                .order_by(desc(MarketSummary.trade_date))
+                .limit(1)
+            ).scalar_one_or_none()
+            if prev_row:
+                previous_report = prev_row
+        except Exception:
+            pass  # No previous report, that's fine
+
+        # Build input
+        summary_input = MarketSummaryInput(
+            trade_date=str(target_date),
+            sector_flows=sector_flows_clean,
+            whale_top=whale_sorted,
+            trend_data=trend_summary,
+            news_data=news_data,
+            composite_top=composite_top,
+            composite_bottom=composite_bottom,
+            market_stats=market_stats,
+            flow_data=flow_top,
+        )
+
+        # Generate full report (Opus)
+        report_result = generate_market_report(summary_input, api_key, previous_report)
+        if not report_result.full_report:
+            return None
+
+        # Condense for dashboard (Haiku)
+        dashboard_result = condense_for_dashboard(report_result.full_report, api_key)
+
+        return {
+            "trade_date": target_date,
+            "full_report": report_result.full_report,
+            "dashboard_summary": dashboard_result.summary or "",
+            "key_insights": report_result.key_insights,
+            "sector_highlights": report_result.sector_highlights,
+            "model_used": report_result.model_used,
+            "condenser_model_used": dashboard_result.model_used,
+            "input_tokens": report_result.input_tokens + dashboard_result.input_tokens,
+            "output_tokens": report_result.output_tokens + dashboard_result.output_tokens,
+        }
+
+    def _persist_market_summary(self, session: Session, row: dict[str, Any] | None) -> int:
+        """Upsert a single MarketSummary row (PK: trade_date)."""
+        if not row:
+            return 0
+
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        model_columns = {c.key for c in MarketSummary.__table__.columns}
+        clean = {k: v for k, v in row.items() if k in model_columns}
+
+        update_cols = [k for k in clean.keys() if k not in ("trade_date", "computed_at")]
+
+        stmt = pg_insert(MarketSummary).values([clean])
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["trade_date"],
+            set_={col: getattr(stmt.excluded, col) for col in update_cols},
+        )
+        session.execute(stmt)
+        return 1
 
     def _load_investor_data_for_sector(
         self, session: Session, ticker: str, target_date: date

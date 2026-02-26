@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { stocksApi, quantApi, whaleApi, trendApi, compositeApi, simulationApi, newsApi, sectorFlowApi, systemApi } from "./api";
+import { stocksApi, quantApi, whaleApi, trendApi, compositeApi, simulationApi, newsApi, sectorFlowApi, systemApi, marketSummaryApi } from "./api";
 import type {
   PaginatedResponse, ApiResponse, StockSummary, StockDetail,
   PriceData, InvestorData, QuantValuation, FScoreDetail,
@@ -178,6 +178,15 @@ export function useSectorFlowHeatmap(metric?: string) {
   return useQuery({
     queryKey: ["sectorFlow", "heatmap", metric],
     queryFn: () => sectorFlowApi.heatmap({ metric }),
+  });
+}
+
+// Market Summary hooks
+export function useMarketSummary() {
+  return useQuery({
+    queryKey: ["market-summary", "latest"],
+    queryFn: () => marketSummaryApi.getLatest(),
+    staleTime: 5 * 60 * 1000,
   });
 }
 

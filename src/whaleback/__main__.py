@@ -323,6 +323,34 @@ def init_db():
                     if "does not exist" not in str(e):
                         click.echo(f"  Index warning: {e}", err=True)
 
+    # Stamp Alembic version so `alembic upgrade head` works on init-db-created databases
+    click.echo("Stamping Alembic version...")
+    try:
+        from pathlib import Path
+
+        from alembic import command as alembic_command
+        from alembic.config import Config as AlembicConfig
+
+        # Search for alembic.ini in multiple locations:
+        # 1. Development: relative to source file
+        # 2. Docker/production: current working directory (/app)
+        candidates = [
+            Path(__file__).resolve().parent.parent.parent / "alembic.ini",
+            Path.cwd() / "alembic.ini",
+            Path("/app/alembic.ini"),
+        ]
+        alembic_ini = next((p for p in candidates if p.exists()), None)
+
+        if alembic_ini:
+            alembic_cfg = AlembicConfig(str(alembic_ini))
+            alembic_cfg.set_main_option("sqlalchemy.url", str(engine.url))
+            alembic_command.stamp(alembic_cfg, "head")
+            click.echo("  Alembic version stamped to head.")
+        else:
+            click.echo("  alembic.ini not found, skipping stamp.")
+    except Exception as e:
+        click.echo(f"  Alembic stamp warning: {e}", err=True)
+
     click.echo("Database initialization complete.")
 
 

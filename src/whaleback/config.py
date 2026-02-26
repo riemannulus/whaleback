@@ -93,6 +93,9 @@ class Settings(BaseSettings):
     news_use_batch_api: bool = False  # Batch API is slow for small batches; use concurrent by default
     news_sentiment_half_life: float = 3.0
 
+    # Market AI Summary
+    market_summary_enabled: bool = False
+
     # Sentiment → Simulation parameters
     sentiment_alpha: float = 0.08
     sentiment_beta: float = 0.15

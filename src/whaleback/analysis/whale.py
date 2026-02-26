@@ -91,10 +91,15 @@ def compute_whale_score(
         }
         sub_scores.append(sub_score)
 
-    # Composite score: max * 0.5 + avg * 0.5
-    if sub_scores:
-        max_score = max(sub_scores)
-        avg_score = sum(sub_scores) / len(sub_scores)
+    # Composite score: max * 0.5 + avg * 0.5 (only over types with data)
+    active_scores = [
+        sub_scores[i]
+        for i, t in enumerate(WHALE_INVESTOR_TYPES)
+        if components[t]["buy_days"] + components[t]["sell_days"] > 0
+    ]
+    if active_scores:
+        max_score = max(active_scores)
+        avg_score = sum(active_scores) / len(active_scores)
         whale_score = max_score * 0.5 + avg_score * 0.5
     else:
         whale_score = 0.0

@@ -120,6 +120,13 @@ export const sectorFlowApi = {
     fetchApi<any>("/api/v1/analysis/sector-flow/heatmap", params),
 };
 
+// Market Summary API
+export const marketSummaryApi = {
+  getLatest: () => fetchApi<any>("/api/v1/analysis/market-summary"),
+  getByDate: (date: string) => fetchApi<any>(`/api/v1/analysis/market-summary/${date}`),
+  getHistory: (limit?: number) => fetchApi<any>(`/api/v1/analysis/market-summary/history?limit=${limit || 10}`),
+};
+
 // System API
 export const systemApi = {
   health: () => fetchApi<any>("/api/v1/health"),
