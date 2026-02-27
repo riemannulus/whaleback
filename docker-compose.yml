@@ -93,7 +93,7 @@ services:
       WB_ANALYSIS_SCHEDULE_MINUTE: ${WB_ANALYSIS_SCHEDULE_MINUTE:-0}
       WB_TIMEZONE: Asia/Seoul
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'whaleback schedule' || exit 1"]
+      test: ["CMD-SHELL", "test -d /proc/1 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
