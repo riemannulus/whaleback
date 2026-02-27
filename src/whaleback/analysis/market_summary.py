@@ -491,7 +491,7 @@ def generate_market_report(
 
         response = client.messages.create(
             model=model,
-            max_tokens=8192,
+            max_tokens=32768,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_prompt}],
         )
