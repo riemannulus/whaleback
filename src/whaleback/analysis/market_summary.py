@@ -27,12 +27,14 @@ class MarketSummaryInput:
     trade_date: str  # YYYY-MM-DD
     sector_flows: list[dict[str, Any]]  # 섹터별 투자자 유형별 수급
     whale_top: list[dict[str, Any]]  # 수급 상위 종목
-    trend_data: list[dict[str, Any]]  # 추세 데이터
+    trend_data: list[dict[str, Any]]  # 섹터별 추세 집계
     news_data: dict[str, Any]  # 뉴스 감성 집계
     composite_top: list[dict[str, Any]]  # 복합점수 상위
     composite_bottom: list[dict[str, Any]]  # 복합점수 하위
     market_stats: dict[str, Any]  # 시장 통계
     flow_data: list[dict[str, Any]]  # 수급 분석 데이터
+    quant_data: list[dict[str, Any]] = field(default_factory=list)  # 퀀트 상위 종목
+    trend_top: list[dict[str, Any]] = field(default_factory=list)  # 추세 상위 종목
 
 
 @dataclass
@@ -372,16 +374,28 @@ def _build_user_prompt(data: MarketSummaryInput, previous_report: str | None = N
             )
         parts.append("")
 
-    # 4. Trend data (cap at 40)
+    # 4. Trend data — sector-level RS aggregates (cap at 40)
     if data.trend_data:
-        parts.append("## [추세/모멘텀 분석 데이터]")
-        for t in data.trend_data[:40]:
+        parts.append("## [섹터별 추세/모멘텀 데이터 (RS 기준)]")
+        for t in sorted(data.trend_data, key=lambda x: x.get("rs_vs_kospi_20d", 0), reverse=True)[:40]:
+            parts.append(
+                f"- {t.get('sector', '?')} | "
+                f"RS_20일: {t.get('rs_vs_kospi_20d', 0):.4f} | "
+                f"RS_60일: {t.get('rs_vs_kospi_60d', 0):.4f} | "
+                f"RS백분위: {t.get('rs_percentile', 0)}%"
+            )
+        parts.append("")
+
+    # 4b. Trend top — individual ticker leaders (cap at 20)
+    if data.trend_top:
+        parts.append("## [추세 상위 종목 (개별)]")
+        for t in data.trend_top[:20]:
             parts.append(
                 f"- {t.get('name', '?')}({t.get('ticker', '?')}) | "
-                f"추세점수: {t.get('trend_score', 0):.1f} | "
-                f"방향: {t.get('trend_direction', '?')} | "
-                f"모멘텀: {t.get('momentum', 0):.2f} | "
-                f"MA정배열: {t.get('ma_alignment', 'N/A')}"
+                f"RS_20일: {t.get('rs_vs_kospi_20d', 0):.4f} | "
+                f"RS_60일: {t.get('rs_vs_kospi_60d', 0):.4f} | "
+                f"RS백분위: {t.get('rs_percentile', 0)}% | "
+                f"섹터: {t.get('sector', '?')}"
             )
         parts.append("")
 
@@ -399,6 +413,19 @@ def _build_user_prompt(data: MarketSummaryInput, previous_report: str | None = N
                 )
         else:
             parts.append(json.dumps(data.news_data, ensure_ascii=False, default=str))
+        parts.append("")
+
+    # 5b. Quant top (cap at 20)
+    if data.quant_data:
+        parts.append("## [퀀트 분석 상위 종목]")
+        for q in data.quant_data[:20]:
+            parts.append(
+                f"- {q.get('name', '?')}({q.get('ticker', '?')}) | "
+                f"퀀트점수: {q.get('quant_score', 0):.1f} | "
+                f"F-Score: {q.get('f_score', 'N/A')} | "
+                f"안전마진: {q.get('safety_margin', 0):.1f}% | "
+                f"PER: {q.get('per', 'N/A')} | PBR: {q.get('pbr', 'N/A')}"
+            )
         parts.append("")
 
     # 6. Composite top (cap at 25)

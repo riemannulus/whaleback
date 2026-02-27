@@ -395,6 +395,7 @@ class AnalysisComputer:
                         flow_rows=flow_rows,
                         news_snapshot_rows=news_snapshot_rows,
                         session=session,
+                        quant_rows=quant_rows,
                     )
                     if market_summary_row:
                         logger.info("[5/6] 시장 AI 요약 완료 (tokens: in=%d, out=%d)",
@@ -1268,6 +1269,7 @@ class AnalysisComputer:
         flow_rows: list[dict[str, Any]],
         news_snapshot_rows: list[dict[str, Any]],
         session: Session,
+        quant_rows: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
         """Generate market AI summary report from computed analysis data.
 
@@ -1283,6 +1285,27 @@ class AnalysisComputer:
         )[:20]
         for w in whale_sorted:
             w["name"] = tickers.get(w.get("ticker", ""), "")
+
+        # Build quant_top: top 20 by quant_score with stock names
+        quant_top: list[dict[str, Any]] = []
+        if quant_rows:
+            quant_sorted = sorted(
+                [q for q in quant_rows if q.get("quant_score") is not None],
+                key=lambda x: float(x.get("quant_score", 0)),
+                reverse=True,
+            )[:20]
+            for q in quant_sorted:
+                q["name"] = tickers.get(q.get("ticker", ""), "")
+            quant_top = quant_sorted
+
+        # Build trend_top: top 20 individual tickers by rs_percentile
+        trend_top: list[dict[str, Any]] = sorted(
+            [t for t in trend_rows if t.get("rs_percentile") is not None],
+            key=lambda x: int(x.get("rs_percentile", 0)),
+            reverse=True,
+        )[:20]
+        for t in trend_top:
+            t["name"] = tickers.get(t.get("ticker", ""), "")
 
         # Build trend data: aggregate by sector (average RS values)
         sector_trend: dict[str, dict[str, Any]] = {}
@@ -1399,6 +1422,8 @@ class AnalysisComputer:
             composite_bottom=composite_bottom,
             market_stats=market_stats,
             flow_data=flow_top,
+            quant_data=quant_top,
+            trend_top=trend_top,
         )
 
         # Generate full report (Opus)

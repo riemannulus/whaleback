@@ -163,33 +163,11 @@ function StrategyContent({
 
 function StockSpotlightContent({
   content,
-  keyInsights,
 }: {
   content: string;
   keyInsights: MarketSummaryKeyInsights | null;
 }) {
-  const stocks =
-    keyInsights?.notable_stocks ?? keyInsights?.stock_spotlight ?? [];
-
-  return (
-    <div>
-      {stocks.length > 0 && (
-        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {stocks.map((stock, i) => (
-            <div
-              key={i}
-              className="rounded-lg border border-slate-100 bg-white p-3 shadow-sm"
-            >
-              <span className="text-sm font-semibold text-slate-900">
-                {stock}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-      <MarkdownContent text={content} />
-    </div>
-  );
+  return <MarkdownContent text={content} />;
 }
 
 function SectorRotationContent({
