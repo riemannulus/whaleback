@@ -92,6 +92,11 @@ services:
       WB_ANALYSIS_SCHEDULE_HOUR: ${WB_ANALYSIS_SCHEDULE_HOUR:-19}
       WB_ANALYSIS_SCHEDULE_MINUTE: ${WB_ANALYSIS_SCHEDULE_MINUTE:-0}
       WB_TIMEZONE: Asia/Seoul
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'whaleback schedule' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     depends_on: *depends-db
     networks:
       - db
