@@ -480,7 +480,7 @@ def generate_market_report(
     Returns:
         MarketReportResult with full report, key insights, and sector highlights.
     """
-    model = "claude-opus-4-20250514"
+    model = "claude-opus-4-6"
 
     # Build sector highlights from raw data (no LLM needed)
     sector_highlights = _build_sector_highlights(data.sector_flows)
