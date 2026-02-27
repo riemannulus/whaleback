@@ -489,14 +489,15 @@ def generate_market_report(
         client = _get_client(api_key)
         user_prompt = _build_user_prompt(data, previous_report)
 
-        response = client.messages.create(
+        with client.messages.stream(
             model=model,
             max_tokens=32768,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_prompt}],
-        )
+        ) as stream:
+            full_report = stream.get_final_text().strip()
+            final_message = stream.get_final_message()
 
-        full_report = response.content[0].text.strip()
         key_insights = _parse_report_sections(full_report)
 
         return MarketReportResult(
@@ -504,8 +505,8 @@ def generate_market_report(
             key_insights=key_insights,
             sector_highlights=sector_highlights,
             model_used=model,
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
+            input_tokens=final_message.usage.input_tokens,
+            output_tokens=final_message.usage.output_tokens,
         )
 
     except Exception as e:
