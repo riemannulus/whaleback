@@ -70,12 +70,25 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    ports:
-      - "${FRONTEND_PORT:-3000}:3000"
     environment:
       BACKEND_INTERNAL_URL: http://backend:8000
     depends_on:
       - backend
+    networks:
+      - app
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
     networks:
       - app
     restart: unless-stopped
@@ -107,7 +120,7 @@ services:
     image: cloudflare/cloudflared:latest
     environment:
       - TUNNEL_TOKEN=${CF_TUNNEL_TOKEN}
-    command: tunnel --no-autoupdate run
+    command: tunnel --no-autoupdate --protocol http2 --edge-ip-version auto run
     depends_on:
       - frontend
     networks:
@@ -138,6 +151,8 @@ services:
 volumes:
   pgdata:
   redisdata:
+  caddy_data:
+  caddy_config:
 
 networks:
   db:
