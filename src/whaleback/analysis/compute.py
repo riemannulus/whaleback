@@ -537,14 +537,17 @@ class AnalysisComputer:
         sector_medians: dict[str, dict[str, float]],
     ) -> dict[str, Any] | None:
         """Compute quant analysis for a single ticker."""
-        # Current fundamentals
+        # Current fundamentals — exact match preferred, fallback to most recent
         current_fund = session.execute(
-            select(Fundamental).where(
+            select(Fundamental)
+            .where(
                 and_(
                     Fundamental.ticker == ticker,
-                    Fundamental.trade_date == target_date,
+                    Fundamental.trade_date <= target_date,
                 )
             )
+            .order_by(desc(Fundamental.trade_date))
+            .limit(1)
         ).scalar_one_or_none()
 
         if not current_fund:
